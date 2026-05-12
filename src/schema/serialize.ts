@@ -1,17 +1,12 @@
-import type { HandoverDocument, FindingItem } from './types';
+import type { HandoverDocument, FindingItem, StatusMarker } from './types';
 
-// Maps named-semantic StatusMarker to on-disk format (H1)
-const STATUS_TO_DISK: Record<string, string> = {
+const STATUS_TO_DISK: Record<StatusMarker, string> = {
   unresolved: '?',
   resolved: 'x',
   custom: '~',
   deferred: 'd',
   skipped: '-',
 };
-
-// ---------------------------------------------------------------------------
-// Source counts (H9: derive from items)
-// ---------------------------------------------------------------------------
 
 function computeSourceCounts(items: FindingItem[]): string {
   const autoCount = items.filter(it => it.source.kind === 'auto-review').length;
@@ -29,13 +24,9 @@ function computeSourceCounts(items: FindingItem[]): string {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Header serialization
-// ---------------------------------------------------------------------------
-
 function serializeHeader(header: HandoverDocument['header'], items: FindingItem[]): string {
   const lines: string[] = [];
-  lines.push(`# PR Review Handover: #${header.prNumber}`);  // F1: use prNumber directly
+  lines.push(`# PR Review Handover: #${header.prNumber}`);
   lines.push('');
   lines.push(`**PR:** ${header.prUrl}`);
   lines.push(`**Branch:** ${header.branch.head.ref} → ${header.branch.base.ref}`);
@@ -47,21 +38,19 @@ function serializeHeader(header: HandoverDocument['header'], items: FindingItem[
   }
   lines.push(`**Generated:** ${header.generatedAt}`);
   lines.push(`**Status:** ${header.status}`);
-  lines.push(`**Source counts:** ${computeSourceCounts(items)}`);  // H9: derived
+  lines.push(`**Source counts:** ${computeSourceCounts(items)}`);
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Item rendering
-// ---------------------------------------------------------------------------
-
 function renderItemHeading(item: FindingItem): string {
-  const markerChar = STATUS_TO_DISK[item.status];  // H1
+  const markerChar = STATUS_TO_DISK[item.status];
+  if (!markerChar) {
+    throw new Error(`Unknown StatusMarker: '${item.status}'`);
+  }
   const sourceTag =
     item.source.kind === 'auto-review'
-      ? `auto:${item.source.severity}`   // G3: severity in source
-      : `reviewer:@${item.source.login}`;  // H2: prepend @ for on-disk format
-  // G2/F2: exhaustive branch on location.kind
+      ? `auto:${item.source.severity}`
+      : `reviewer:@${item.source.login}`;
   const location =
     item.location.kind === 'file'
       ? `${item.location.file}:${item.location.line}`
@@ -73,8 +62,8 @@ function renderItem(item: FindingItem): string {
   const lines: string[] = [];
   lines.push(renderItemHeading(item));
   lines.push('');
-  lines.push(`**Severity:** ${item.source.severity}`);  // G3: severity in source
-  lines.push(`**Source:** ${item.source.kind}`);  // F3: inline source.kind
+  lines.push(`**Severity:** ${item.source.severity}`);
+  lines.push(`**Source:** ${item.source.kind}`);
   lines.push(`**Reported by:** ${item.reportedBy.join(', ')}`);
   lines.push(`**Comment:** ${item.comment}`);
   lines.push(`**Analysis:** ${item.analysis}`);
@@ -86,10 +75,6 @@ function renderItem(item: FindingItem): string {
   lines.push(`**Resolution:** ${item.resolution}`);
   return lines.join('\n');
 }
-
-// ---------------------------------------------------------------------------
-// Document serialization
-// ---------------------------------------------------------------------------
 
 export function serializeDocument(doc: HandoverDocument): string {
   const parts: string[] = [];

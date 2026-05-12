@@ -19,7 +19,7 @@ describe('vscode shim alias', () => {
   it('RelativePattern stores base and pattern', () => {
     const rp = new vscode.RelativePattern(vscode.Uri.file('/a/b'), '*.md');
     expect(rp.pattern).toBe('*.md');
-    expect((rp as unknown as { base: unknown }).base).toBeDefined();
+    expect(rp.base).toBeDefined();
   });
 
   it('Range / Position store coordinates', () => {

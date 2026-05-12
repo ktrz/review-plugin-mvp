@@ -122,14 +122,18 @@ const makeNamespace = <K extends string>(keys: readonly K[]): Record<K, ReturnTy
   return ns;
 };
 
-export const workspace = {
+type WorkspaceFolderShim = { uri: { fsPath: string }; name: string; index: number };
+
+export const workspace: ReturnType<typeof makeNamespace<'createFileSystemWatcher' | 'getConfiguration' | 'openTextDocument' | 'asRelativePath'>> & {
+  workspaceFolders: ReadonlyArray<WorkspaceFolderShim> | undefined;
+} = {
   ...makeNamespace([
     'createFileSystemWatcher',
     'getConfiguration',
     'openTextDocument',
     'asRelativePath',
   ] as const),
-  workspaceFolders: undefined as unknown as ReadonlyArray<{ uri: { fsPath: string }; name: string; index: number }> | undefined,
+  workspaceFolders: undefined,
 };
 
 export const window = makeNamespace([

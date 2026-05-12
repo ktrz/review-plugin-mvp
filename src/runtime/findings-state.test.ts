@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import type { HandoverDocument } from '../schema';
+import { HandoverDocumentSchema, type HandoverDocument } from '../schema';
 import {
   clearState,
   getOutputChannel,
@@ -11,16 +11,19 @@ import {
 } from './findings-state';
 
 const makeDoc = (): HandoverDocument =>
-  ({
+  HandoverDocumentSchema.parse({
     header: {
-      pr: 42,
-      repo: 'octo/repo',
-      branch: { name: 'feat/x' },
-      base: { name: 'main' },
+      prUrl: 'https://github.com/octo/repo/pull/42',
+      prNumber: 42,
+      branch: {
+        head: { ref: 'feat/x' },
+        base: { ref: 'main' },
+      },
       generatedAt: '2026-01-01T00:00:00Z',
+      status: 'PENDING REVIEW',
     },
-    findings: [],
-  }) as unknown as HandoverDocument;
+    items: [],
+  });
 
 const makeChannel = (): vscode.OutputChannel => {
   const fake: Partial<vscode.OutputChannel> = {

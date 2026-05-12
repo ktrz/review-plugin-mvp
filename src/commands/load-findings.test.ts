@@ -8,8 +8,7 @@ import {
   type LoadDeps,
 } from './load-findings';
 import { clearState, getState, setOutputChannel } from '../runtime/findings-state';
-import { ParseError } from '../schema';
-import type { HandoverDocument } from '../schema';
+import { HandoverDocumentSchema, ParseError, type HandoverDocument } from '../schema';
 
 const WORKSPACE = '/tmp/repo';
 
@@ -20,11 +19,34 @@ function setWorkspaceFolders(
   ws.workspaceFolders = folders;
 }
 
+const makeFindingItemInput = (commentTag: string) => ({
+  status: 'unresolved',
+  source: { kind: 'auto-review', severity: 'important' },
+  location: { kind: 'file', file: 'src/x.ts', line: 1 },
+  reportedBy: ['auto-review'],
+  comment: `comment-${commentTag}`,
+  analysis: `analysis-${commentTag}`,
+  recommendation: `recommendation-${commentTag}`,
+  options: [`option-${commentTag}`],
+  resolution: '',
+  dirty: false,
+  rawSource: `raw-${commentTag}`,
+});
+
 const makeDoc = (): HandoverDocument =>
-  ({
-    header: { pr: 42 },
-    items: [{ id: 'one' }, { id: 'two' }],
-  }) as unknown as HandoverDocument;
+  HandoverDocumentSchema.parse({
+    header: {
+      prUrl: 'https://github.com/octo/repo/pull/42',
+      prNumber: 42,
+      branch: {
+        head: { ref: 'feat/x' },
+        base: { ref: 'main' },
+      },
+      generatedAt: '2026-01-01T00:00:00Z',
+      status: 'PENDING REVIEW',
+    },
+    items: [makeFindingItemInput('one'), makeFindingItemInput('two')],
+  });
 
 const makeChannel = () => {
   const channel: Partial<vscode.OutputChannel> = {
@@ -65,8 +87,8 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     workspaceRoot: WORKSPACE,
     discoverPrNumber: vi.fn(async () => 42),
     resolveFindingsPath: vi.fn(async () => '/tmp/repo/pr-42-auto-review.md'),
-    loadFindingsFile: loadFindingsFile as unknown as LoadDeps['loadFindingsFile'],
-    createFindingsWatcher: createFindingsWatcher as unknown as LoadDeps['createFindingsWatcher'],
+    loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
+    createFindingsWatcher: createFindingsWatcher as LoadDeps['createFindingsWatcher'],
     getOutputChannel: () => channel,
     showError,
     ...overrides,
@@ -112,7 +134,7 @@ describe('loadFindingsHandler', () => {
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),
     );
     expect(channel.appendLine).toHaveBeenCalledWith(
-      expect.stringContaining('"id": "one"'),
+      expect.stringContaining('"comment": "comment-one"'),
     );
   });
 
@@ -154,7 +176,7 @@ describe('loadFindingsHandler', () => {
     const { deps, channel, showError } = makeDeps({
       loadFindingsFile: vi.fn(async () => {
         throw parseError;
-      }) as unknown as LoadDeps['loadFindingsFile'],
+      }) as LoadDeps['loadFindingsFile'],
     });
 
     await loadFindingsHandler(deps);
@@ -178,7 +200,7 @@ describe('loadFindingsHandler', () => {
       .mockImplementationOnce(() => ({ dispose: firstDispose }))
       .mockImplementationOnce(() => ({ dispose: secondDispose }));
     const { deps } = makeDeps({
-      createFindingsWatcher: createWatcher as unknown as LoadDeps['createFindingsWatcher'],
+      createFindingsWatcher: createWatcher as LoadDeps['createFindingsWatcher'],
     });
 
     await loadFindingsHandler(deps);
@@ -197,8 +219,8 @@ describe('loadFindingsHandler', () => {
       .mockRejectedValueOnce(new ParseError('bad body', 0, 'BETWEEN_ITEMS', 4));
 
     const { deps, channel, showError } = makeDeps({
-      createFindingsWatcher: createWatcher as unknown as LoadDeps['createFindingsWatcher'],
-      loadFindingsFile: loadFindingsFile as unknown as LoadDeps['loadFindingsFile'],
+      createFindingsWatcher: createWatcher as LoadDeps['createFindingsWatcher'],
+      loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
     await loadFindingsHandler(deps);
@@ -225,7 +247,7 @@ describe('loadFindingsHandler', () => {
       .mockResolvedValueOnce({ doc: docB, mtime: 200 });
 
     const { deps, watcherCallbacks, channel } = makeDeps({
-      loadFindingsFile: loadFindingsFile as unknown as LoadDeps['loadFindingsFile'],
+      loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
     await loadFindingsHandler(deps);
@@ -255,7 +277,7 @@ describe('loadFindingsHandler', () => {
       .mockRejectedValueOnce(new ParseError('bad header', 0, 'IN_HEADER', 1));
 
     const { deps, watcherCallbacks, channel, showError } = makeDeps({
-      loadFindingsFile: loadFindingsFile as unknown as LoadDeps['loadFindingsFile'],
+      loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
     await loadFindingsHandler(deps);
@@ -302,7 +324,7 @@ describe('registerLoadFindingsCommand', () => {
 
   it('registers the reviewPlugin.loadFindings command and pushes disposables', () => {
     const subscriptions: vscode.Disposable[] = [];
-    const context = { subscriptions } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
     const commandDispose = vi.fn();
     (vscode.commands.registerCommand as ReturnType<typeof vi.fn>).mockReturnValue({
       dispose: commandDispose,
@@ -320,7 +342,7 @@ describe('registerLoadFindingsCommand', () => {
 
   it('shows an error toast and aborts when no workspace folder is open', async () => {
     const subscriptions: vscode.Disposable[] = [];
-    const context = { subscriptions } as unknown as vscode.ExtensionContext;
+    const context = { subscriptions } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
     let captured: (() => Promise<void>) | null = null;
     (vscode.commands.registerCommand as ReturnType<typeof vi.fn>).mockImplementation(
       (_id: string, cb: () => Promise<void>) => {
@@ -351,7 +373,7 @@ describe('disposeActiveWatcher', () => {
   it('disposes the active watcher and forgets it', async () => {
     const dispose = vi.fn();
     const { deps } = makeDeps({
-      createFindingsWatcher: vi.fn(() => ({ dispose })) as unknown as LoadDeps['createFindingsWatcher'],
+      createFindingsWatcher: vi.fn(() => ({ dispose })) as LoadDeps['createFindingsWatcher'],
     });
     await loadFindingsHandler(deps);
 

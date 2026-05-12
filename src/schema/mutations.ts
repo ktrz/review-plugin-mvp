@@ -6,7 +6,7 @@ import type { FindingItem } from './types';
  * Original item is not modified; sets dirty: true.
  */
 export function markResolved(item: FindingItem, resolution: string): FindingItem {
-  return { ...item, status: 'resolved', resolution, dirty: true };
+  return { ...item, status: 'resolved', resolution, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }
 
 /**
@@ -14,7 +14,7 @@ export function markResolved(item: FindingItem, resolution: string): FindingItem
  * Original item is not modified; sets dirty: true.
  */
 export function markCustom(item: FindingItem, resolution: string): FindingItem {
-  return { ...item, status: 'custom', resolution, dirty: true };
+  return { ...item, status: 'custom', resolution, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }
 
 /**
@@ -22,7 +22,7 @@ export function markCustom(item: FindingItem, resolution: string): FindingItem {
  * Original item is not modified; sets dirty: true.
  */
 export function markDeferred(item: FindingItem): FindingItem {
-  return { ...item, status: 'deferred', dirty: true };
+  return { ...item, status: 'deferred', dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }
 
 /**
@@ -30,7 +30,7 @@ export function markDeferred(item: FindingItem): FindingItem {
  * Original item is not modified; sets dirty: true.
  */
 export function markSkipped(item: FindingItem): FindingItem {
-  return { ...item, status: 'skipped', dirty: true };
+  return { ...item, status: 'skipped', dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }
 
 /**
@@ -38,14 +38,14 @@ export function markSkipped(item: FindingItem): FindingItem {
  * Original item is not modified; sets dirty: true.
  */
 export function markUnresolved(item: FindingItem): FindingItem {
-  return { ...item, status: 'unresolved', dirty: true };
+  return { ...item, status: 'unresolved', dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }
 
 /**
  * Return a new FindingItem with the given resolution text set, without changing status.
- * If `resolution` is undefined the existing resolution is preserved; pass an empty string to clear it.
+ * Pass an empty string to clear it.
  * Original item is not modified; sets dirty: true.
  */
 export function withResolution(item: FindingItem, text: string): FindingItem {
-  return { ...item, resolution: text, dirty: true };
+  return { ...item, resolution: text, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
 }

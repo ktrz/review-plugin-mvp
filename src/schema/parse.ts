@@ -9,10 +9,7 @@ import {
   type Location,
 } from './types';
 
-// ---------------------------------------------------------------------------
-// Parser state
-//
-// Transitions (valid arcs):
+// Parser state transitions (valid arcs):
 //   IN_HEADER       → BETWEEN_ITEMS  (on first ---)
 //   BETWEEN_ITEMS   → IN_ITEM_FIELDS (on ## [...])
 //   IN_ITEM_FIELDS  → BETWEEN_ITEMS  (on ---)
@@ -24,7 +21,6 @@ import {
 //   IN_OPTIONS      → IN_RESOLUTION  (on **Resolution:** field)
 //   IN_RESOLUTION   → BETWEEN_ITEMS  (on ---)
 //   IN_RESOLUTION   → IN_ITEM_FIELDS (on ## [...])
-// ---------------------------------------------------------------------------
 
 type ActiveItem = {
   status: StatusMarker;
@@ -47,12 +43,8 @@ type ParserStateValue =
   | { state: 'IN_OPTIONS'; item: ActiveItem }
   | { state: 'IN_RESOLUTION'; item: ActiveItem };
 
-// For ParseError.state compatibility, keep a string type:
+// Exported so callers can reference parser state names without importing the internal union type.
 export type ParserState = ParserStateValue['state'];
-
-// ---------------------------------------------------------------------------
-// ParseError
-// ---------------------------------------------------------------------------
 
 export class ParseError extends Error {
   constructor(
@@ -67,23 +59,16 @@ export class ParseError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Regex patterns
-// ---------------------------------------------------------------------------
-
 // Matches item heading: ## [STATUS] SOURCE_TAG — FILE:LINE  or  — review body
 // STATUS: one of ?, x, ~, d, -
 // SOURCE_TAG: auto:SEVERITY  or  reviewer:@LOGIN
-// Matches **Key:** value — colon sits before the closing **, not after it
 const ITEM_HEADING_RE =
   /^## \[([?x~d\-])\] (auto:([a-z]+)|reviewer:@([^\s@]+)) — (review body|([^\s:]+):(\d+))$/;
 
 // Matches **Key:** value — colon sits before the closing **, not after it
 const FIELD_RE = /^\*\*([^*]+):\*\*\s*(.*)/;
 
-// ---------------------------------------------------------------------------
-// Source counts parsing
-// ---------------------------------------------------------------------------
+const OPTION_BULLET_RE = /^\s*[-*]\s+(.+)/;
 
 type SourceCounts = {
   autoReviewFindings: number;
@@ -110,11 +95,7 @@ function parseSourceCounts(line: string): SourceCounts | null {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Item heading parsing
-// ---------------------------------------------------------------------------
-
-// Maps on-disk status char to named-semantic StatusMarker (H1/D4)
+// Maps on-disk status char to named-semantic StatusMarker
 const STATUS_CHAR_MAP: Record<string, StatusMarker> = {
   '?': 'unresolved',
   'x': 'resolved',
@@ -134,19 +115,11 @@ const KNOWN_ITEM_FIELDS = new Set([
   'Recommendation', 'Resolution', 'Note', 'Options',
 ]);
 
-// ---------------------------------------------------------------------------
-// Item boundary helper (D7/parse.ts:291)
-// ---------------------------------------------------------------------------
-
 function handleItemBoundary(line: string): 'separator' | 'new-heading' | null {
   if (line.trim() === '---') { return 'separator'; }
   if (line.startsWith('## [')) { return 'new-heading'; }
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Finalize item (D7: item comes from state, not currentItem!)
-// ---------------------------------------------------------------------------
 
 function finalizeItem(
   item: ActiveItem,
@@ -155,7 +128,7 @@ function finalizeItem(
   out: FindingItem[],
 ): void {
   if (item.source.kind === 'reviewer' && !item.severitySeen) {
-    // A3: reviewer item without **Severity:** field → ParseError
+    // Reviewer items must declare severity via **Severity:** field
     throw new ParseError(
       `Reviewer item missing **Severity:** field`,
       item.startOffset,
@@ -164,10 +137,17 @@ function finalizeItem(
     );
   }
 
-  const rawEnd = endOffset;
-  // lineOffset = byte offset of the current line's first char; used for ParseError positions and rawSource slicing
+  if (item.reportedBy.length === 0) {
+    throw new ParseError(
+      'Item missing required field: Reported by',
+      item.startOffset,
+      'IN_ITEM_FIELDS',
+      0,
+    );
+  }
+
   // Trim only \r and \n (preserve trailing horizontal whitespace per byte-preservation guarantee)
-  const rawSource = raw.slice(item.startOffset, rawEnd).replace(/[\r\n]+$/, '');
+  const rawSource = raw.slice(item.startOffset, endOffset).replace(/[\r\n]+$/, '');
 
   out.push({
     status: item.status,
@@ -183,10 +163,6 @@ function finalizeItem(
     dirty: false,
   } as FindingItem);
 }
-
-// ---------------------------------------------------------------------------
-// Apply field to active item
-// ---------------------------------------------------------------------------
 
 function applyField(
   item: ActiveItem,
@@ -209,11 +185,7 @@ function applyField(
           { cause: result.error },
         );
       }
-      // Severity lives in source (G3): update the source object
-      if (item.source.kind === 'auto-review') {
-        // auto-review severity comes from heading tag, field is informational; skip
-      } else {
-        // reviewer: severity from **Severity:** field
+      if (item.source.kind === 'reviewer') {
         item.source = { ...item.source, severity: result.data };
       }
       item.severitySeen = true;
@@ -246,10 +218,6 @@ function applyField(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Parse item heading
-// ---------------------------------------------------------------------------
-
 function parseItemHeading(
   line: string,
   offset: number,
@@ -267,10 +235,9 @@ function parseItemHeading(
   const status = STATUS_CHAR_MAP[statusChar];
   // statusChar is guaranteed valid by regex [?x~d\-]; status always defined
 
-  // Source + severity (G3: severity in source)
   let source: Source;
   if (autoSev !== undefined) {
-    // auto-review: validate severity at parse time (A1)
+    // Validate severity at parse time so heading tag becomes typed
     const sevResult = SeveritySchema.safeParse(autoSev);
     if (!sevResult.success) {
       throw new ParseError(
@@ -281,12 +248,11 @@ function parseItemHeading(
     }
     source = { kind: 'auto-review', severity: sevResult.data };
   } else {
-    // reviewer:@LOGIN — severity comes from **Severity:** field later (A3)
-    // H2: store bare handle (reviewerLogin captured without @)
+    // reviewer:@LOGIN — severity comes from **Severity:** field later
+    // Store bare handle; serializer prepends @
     source = { kind: 'reviewer', login: reviewerLogin, severity: 'nit' }; // 'nit' placeholder; finalize checks severitySeen
   }
 
-  // Location (G2)
   const location: Location =
     locationStr === 'review body'
       ? { kind: 'review-body' }
@@ -307,9 +273,23 @@ function parseItemHeading(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Main parser
-// ---------------------------------------------------------------------------
+function transitionOnBoundary(
+  boundary: 'separator' | 'new-heading',
+  item: ActiveItem,
+  line: string,
+  raw: string,
+  lineOffset: number,
+  lineNum: number,
+  fromState: ParserState,
+  items: FindingItem[],
+): ParserStateValue {
+  finalizeItem(item, raw, lineOffset, items);
+  if (boundary === 'separator') {
+    return { state: 'BETWEEN_ITEMS' };
+  }
+  const next = parseItemHeading(line, lineOffset, lineNum, fromState, lineOffset);
+  return { state: 'IN_ITEM_FIELDS', item: next };
+}
 
 export function parseDocument(raw: string): Readonly<HandoverDocument> {
   // Normalize CRLF → LF
@@ -326,6 +306,7 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
   let generatedAt = '';
   let status = '';
   let sourceCounts: SourceCounts | null = null;
+  let prNumber = 0;
 
   const items: FindingItem[] = [];
 
@@ -409,7 +390,6 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
         if (!sourceCounts) {
           throw new ParseError('Missing required header field: Source counts', lineOffset, 'IN_HEADER', lineNum);
         }
-        // Extract prNumber from URL (H4)
         const prMatch = prUrl.match(/\/pull\/(\d+)$/);
         if (!prMatch) {
           throw new ParseError(
@@ -417,6 +397,7 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
             lineOffset, 'IN_HEADER', lineNum,
           );
         }
+        prNumber = parseInt(prMatch[1], 10);
         sv = { state: 'BETWEEN_ITEMS' };
       }
       // else: blank lines, h1 title — skip
@@ -432,13 +413,8 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
 
     else if (sv.state === 'IN_ITEM_FIELDS') {
       const boundary = handleItemBoundary(line);
-      if (boundary === 'separator') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        sv = { state: 'BETWEEN_ITEMS' };
-      } else if (boundary === 'new-heading') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        const item = parseItemHeading(line, lineOffset, lineNum, 'IN_ITEM_FIELDS', lineOffset);
-        sv = { state: 'IN_ITEM_FIELDS', item };
+      if (boundary !== null) {
+        sv = transitionOnBoundary(boundary, sv.item, line, raw, lineOffset, lineNum, 'IN_ITEM_FIELDS', items);
       } else {
         const fieldMatch = FIELD_RE.exec(line);
         if (fieldMatch) {
@@ -465,13 +441,8 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
 
     else if (sv.state === 'IN_OPTIONS') {
       const boundary = handleItemBoundary(line);
-      if (boundary === 'separator') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        sv = { state: 'BETWEEN_ITEMS' };
-      } else if (boundary === 'new-heading') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        const item = parseItemHeading(line, lineOffset, lineNum, 'IN_OPTIONS', lineOffset);
-        sv = { state: 'IN_ITEM_FIELDS', item };
+      if (boundary !== null) {
+        sv = transitionOnBoundary(boundary, sv.item, line, raw, lineOffset, lineNum, 'IN_OPTIONS', items);
       } else {
         const fieldMatch = FIELD_RE.exec(line);
         if (fieldMatch) {
@@ -483,15 +454,13 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
           } else if (key === 'Note') {
             // Note is allowed in options block; intentionally ignored; rides in rawSource
           } else {
-            // B3: throw on unexpected non-Resolution FIELD_RE keys in IN_OPTIONS
             throw new ParseError(
               `Unexpected field in options block: **${key}:**`,
               lineOffset, 'IN_OPTIONS', lineNum,
             );
           }
-        } else if (/^\s*[-*]\s+(.+)/.test(line)) {
-          // B4: broadened bullet regex to capture indented and *-prefixed bullets
-          const bulletMatch = line.match(/^\s*[-*]\s+(.+)/);
+        } else {
+          const bulletMatch = OPTION_BULLET_RE.exec(line);
           if (bulletMatch) {
             sv.item.options.push(bulletMatch[1].trim());
           }
@@ -502,15 +471,10 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
 
     else if (sv.state === 'IN_RESOLUTION') {
       const boundary = handleItemBoundary(line);
-      if (boundary === 'separator') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        sv = { state: 'BETWEEN_ITEMS' };
-      } else if (boundary === 'new-heading') {
-        finalizeItem(sv.item, raw, lineOffset, items);
-        const item = parseItemHeading(line, lineOffset, lineNum, 'IN_RESOLUTION', lineOffset);
-        sv = { state: 'IN_ITEM_FIELDS', item };
+      if (boundary !== null) {
+        sv = transitionOnBoundary(boundary, sv.item, line, raw, lineOffset, lineNum, 'IN_RESOLUTION', items);
       } else if (line.trim() !== '') {
-        // C3+C4: append subsequent non-separator, non-heading, non-blank lines to resolution
+        // Append non-separator, non-heading, non-blank lines to resolution
         sv.item.resolution = sv.item.resolution
           ? `${sv.item.resolution}\n${line}`
           : line;
@@ -533,11 +497,7 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
     );
   }
 
-  // H4: extract prNumber from URL
-  const prMatch = prUrl.match(/\/pull\/(\d+)$/)!; // guaranteed non-null (checked at ---)
-  const prNumber = parseInt(prMatch[1], 10);
-
-  // H9: cross-check sourceCounts against items
+  // Cross-check source counts against parsed items
   if (sourceCounts !== null) {
     const autoCount = items.filter(it => it.source.kind === 'auto-review').length;
     const humanCount = items.filter(it => it.source.kind === 'reviewer').length;
@@ -563,7 +523,7 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
     }
   }
 
-  // C5: wrap ZodError → ParseError
+  // Wrap ZodError → ParseError so callers see single error type
   try {
     const document = HandoverDocumentSchema.parse({
       header: {

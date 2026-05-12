@@ -3,6 +3,7 @@ import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { parseDocument } from './parse';
 import { serializeDocument } from './serialize';
+import { markResolved } from './mutations';
 
 const fixtureDir = join(__dirname, '../../fixtures');
 
@@ -16,6 +17,10 @@ describe('round-trip — parse → serialize → parse', () => {
   const serialized = serializeDocument(doc1);
   const doc2 = parseDocument(serialized);
 
+  it('byte-equality after trim', () => {
+    expect(serialized.trim()).toBe(raw.trim());
+  });
+
   it('re-parses without error', () => {
     expect(doc2).toBeDefined();
   });
@@ -26,6 +31,10 @@ describe('round-trip — parse → serialize → parse', () => {
 
   it('header prUrl preserved', () => {
     expect(doc2.header.prUrl).toBe(doc1.header.prUrl);
+  });
+
+  it('header prNumber preserved', () => {
+    expect(doc2.header.prNumber).toBe(doc1.header.prNumber);
   });
 
   it('header branch head ref preserved', () => {
@@ -52,10 +61,6 @@ describe('round-trip — parse → serialize → parse', () => {
     expect(doc2.header.status).toBe(doc1.header.status);
   });
 
-  it('header sourceCounts preserved', () => {
-    expect(doc2.header.sourceCounts).toEqual(doc1.header.sourceCounts);
-  });
-
   // Per-item structural equality
   for (let i = 0; i < 6; i++) {
     describe(`item ${i}`, () => {
@@ -65,14 +70,8 @@ describe('round-trip — parse → serialize → parse', () => {
       it('source matches', () => {
         expect(doc2.items[i].source).toEqual(doc1.items[i].source);
       });
-      it('severity matches', () => {
-        expect(doc2.items[i].severity).toBe(doc1.items[i].severity);
-      });
-      it('file matches', () => {
-        expect(doc2.items[i].file).toBe(doc1.items[i].file);
-      });
-      it('line matches', () => {
-        expect(doc2.items[i].line).toBe(doc1.items[i].line);
+      it('location matches', () => {
+        expect(doc2.items[i].location).toEqual(doc1.items[i].location);
       });
       it('reportedBy matches', () => {
         expect(doc2.items[i].reportedBy).toEqual(doc1.items[i].reportedBy);
@@ -94,4 +93,17 @@ describe('round-trip — parse → serialize → parse', () => {
       });
     });
   }
+
+  describe('withResolution integration', () => {
+    it('markResolved sets Resolution field in serialized output', () => {
+      const item = doc1.items[0];
+      const resolved = markResolved(item, 'Custom resolution');
+      const mutatedDoc = {
+        ...doc1,
+        items: doc1.items.map((it, idx) => idx === 0 ? resolved : it),
+      };
+      const s = serializeDocument(mutatedDoc);
+      expect(s).toContain('**Resolution:** Custom resolution');
+    });
+  });
 });

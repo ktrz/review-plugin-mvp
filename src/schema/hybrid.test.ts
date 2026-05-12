@@ -3,7 +3,7 @@ import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { parseDocument } from './parse';
 import { serializeDocument } from './serialize';
-import { withStatus } from './mutations';
+import { markResolved, markDeferred, markSkipped, markUnresolved } from './mutations';
 
 const fixtureDir = join(__dirname, '../../fixtures');
 
@@ -27,16 +27,16 @@ describe('hybrid serialization', () => {
 
   it('mutated item is re-rendered with new status, untouched items preserve rawSource', () => {
     const doc = parseDocument(raw);
-    // Mutate item 0 (status [?] → [x])
+    // Mutate item 0 (status unresolved → resolved)
     const mutatedDoc = {
       ...doc,
       items: doc.items.map((item, idx) =>
-        idx === 0 ? withStatus(item, '[x]') : item,
+        idx === 0 ? markResolved(item, item.resolution) : item,
       ),
     };
     const serialized = serializeDocument(mutatedDoc);
 
-    // Mutated item should have new status in heading
+    // Mutated item should have new status in heading (on-disk format)
     expect(serialized).toContain('## [x] auto:critical — src/router.ts:42');
 
     // Mutated item should NOT contain old status heading
@@ -59,25 +59,112 @@ describe('hybrid serialization', () => {
     expect(serialized).toContain(item3.rawSource);
   });
 
-  it('dual-flag item mutated via withStatus → Note line dropped (lossy re-render)', () => {
+  it('dual-flag item mutated via markResolved → Note line dropped (lossy re-render)', () => {
     const doc = parseDocument(raw);
     const item3 = doc.items[3];
-    const mutated = withStatus(item3, '[x]');
+    const mutated = markResolved(item3, 'Resolved now');
     const mutatedDoc = {
       ...doc,
       items: doc.items.map((item, idx) => (idx === 3 ? mutated : item)),
     };
     const serialized = serializeDocument(mutatedDoc);
 
-    // Mutated item is re-rendered — Note line should not appear in its section
-    // The Note line might still appear if other untouched items happen to contain it,
-    // but item 3's section should not include it. Since Note is not a structured field
-    // and renderItem only emits structured fields, the Note is dropped.
-    // We check that the new heading is present
+    // Mutated item is re-rendered — new status in on-disk format
     expect(serialized).toContain('## [x] auto:critical — src/router.ts:42');
-    // And that the Note does NOT appear in the serialized output for this item
-    // (since it was the only occurrence)
+    // Note line is dropped (not in structured fields)
     const noteOccurrences = (serialized.match(/\*\*Note:\*\* also flagged by @alice/g) ?? []).length;
     expect(noteOccurrences).toBe(0);
+  });
+
+  it('all items dirty → re-serializes without error', () => {
+    const doc = parseDocument(raw);
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map(item => markDeferred(item)),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    // Should be able to re-parse the result
+    expect(() => parseDocument(serialized)).not.toThrow();
+  });
+
+  it('first item dirty only → re-parse cleanly', () => {
+    const doc = parseDocument(raw);
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map((item, idx) => idx === 0 ? markSkipped(item) : item),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    const doc2 = parseDocument(serialized);
+    expect(doc2.items[0].status).toBe('skipped');
+    // Remaining items unchanged
+    for (let i = 1; i < doc.items.length; i++) {
+      expect(doc2.items[i].status).toBe(doc.items[i].status);
+    }
+  });
+
+  it('last item dirty only → re-parse cleanly', () => {
+    const doc = parseDocument(raw);
+    const lastIdx = doc.items.length - 1;
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map((item, idx) => idx === lastIdx ? markUnresolved(item) : item),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    const doc2 = parseDocument(serialized);
+    expect(doc2.items[lastIdx].status).toBe('unresolved');
+  });
+
+  it('two consecutive dirty items (items 4 and 5) → re-parse cleanly', () => {
+    const doc = parseDocument(raw);
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map((item, idx) =>
+        idx === 4 || idx === 5 ? markResolved(item, 'addressed') : item,
+      ),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    const doc2 = parseDocument(serialized);
+    expect(doc2.items[4].status).toBe('resolved');
+    expect(doc2.items[5].status).toBe('resolved');
+  });
+
+  it('review-body reviewer item re-render: heading is review body, no :NN', () => {
+    const doc = parseDocument(raw);
+    // Item 1 is reviewer:@alice — review body
+    const item1 = doc.items[1];
+    const mutated = markResolved(item1, 'Acknowledged');
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map((item, idx) => idx === 1 ? mutated : item),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    expect(serialized).toContain('## [x] reviewer:@alice — review body');
+    // Should NOT contain file:line format for this item
+    // The heading should not contain a colon-number after review body
+    expect(serialized).not.toContain('review body:');
+  });
+
+  it('reviewer login in heading carries @, Source field shows kind only', () => {
+    const doc = parseDocument(raw);
+    // Item 5 is reviewer:@alice — src/types.ts:8 — force dirty to re-render
+    const item5 = doc.items[5];
+    const mutated = markResolved(item5, 'Fixed');
+    const mutatedDoc = {
+      ...doc,
+      items: doc.items.map((item, idx) => idx === 5 ? mutated : item),
+    };
+    const serialized = serializeDocument(mutatedDoc);
+    // Heading carries @alice
+    expect(serialized).toContain('## [x] reviewer:@alice — src/types.ts:8');
+    // Source field shows kind only (no login)
+    expect(serialized).toContain('**Source:** reviewer');
+    expect(serialized).not.toContain('**Source:** reviewer:@alice');
+  });
+
+  it('source counts in serialized output are derived correctly', () => {
+    const doc = parseDocument(raw);
+    const serialized = serializeDocument(doc);
+    // The corrected fixture has 2 critical, 2 important, 2 suggestion/nit
+    expect(serialized).toContain('4 auto-review findings, 2 human reviewer comments, 6 total (2 critical, 2 important, 2 suggestion/nit)');
   });
 });

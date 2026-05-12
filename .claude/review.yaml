@@ -1,0 +1,26 @@
+# Review configuration for review-plugin-mvp
+# See ~/.claude/review.yaml for full schema documentation.
+
+guidelines:
+  - CLAUDE.md
+  - .claude/review-guidelines/review-style.md
+  - .claude/review-guidelines/architecture.md
+  - .claude/review-guidelines/type-safety.md
+  - .claude/review-guidelines/code-quality.md
+  - .claude/review-guidelines/testing.md
+  - .claude/review-guidelines/error-handling.md
+
+output_dir: plans.local/<repo>/
+
+severity_threshold: suggestion
+
+focus:
+  - correctness
+  - tests
+  - error-handling
+  - types
+  - simplification
+
+guidelines_mode: shared
+
+finding_overlap: group

@@ -46,6 +46,12 @@ const esbuildProblemMatcherPlugin = {
         }
       });
       console.log('[watch] build finished');
+      if (!watch && result.errors.length > 0) {
+        process.exit(1);
+      }
+      if (production && !watch && result.warnings.length > 0) {
+        process.exit(1);
+      }
     });
   },
 };

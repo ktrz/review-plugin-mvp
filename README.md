@@ -59,3 +59,15 @@ Output of the session. Consumer is the existing `execute-review-decisions` skill
 3. Relationship cascade UI.
 4. Measure latency; add async navigation only if warranted.
 5. Voice layer if warranted.
+
+## Dev Setup
+
+```bash
+npm install          # install dependencies
+npm test             # run vitest unit tests (parse, serialize, round-trip, hybrid, mutations)
+npm run lint         # eslint src/
+npm run compile      # esbuild bundle → dist/extension.js
+npm run package      # vsce package → .vsix
+```
+
+Press **F5** in VS Code to launch the Extension Development Host with the extension loaded.

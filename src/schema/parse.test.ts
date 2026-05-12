@@ -3,18 +3,38 @@ import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { parseDocument, ParseError } from './parse';
 
-// ---------------------------------------------------------------------------
-// Helper — load fixture relative to project root
-// ---------------------------------------------------------------------------
 const fixtureDir = join(__dirname, '../../fixtures');
 
 function loadFixture(name: string): string {
   return readFileSync(join(fixtureDir, name), 'utf8');
 }
 
-// ---------------------------------------------------------------------------
-// Main fixture
-// ---------------------------------------------------------------------------
+function makeDoc({
+  prNumber = 1,
+  branch = 'feat/x → main',
+  generated = '2024-01-01T00:00:00Z',
+  status = 'PENDING REVIEW',
+  sourceCounts = '0 auto-review findings, 0 human reviewer comments, 0 total (0 critical, 0 important, 0 suggestion/nit)',
+  body = '',
+}: {
+  prNumber?: number;
+  branch?: string;
+  generated?: string;
+  status?: string;
+  sourceCounts?: string;
+  body?: string;
+} = {}): string {
+  return `# PR Review Handover: #${prNumber}
+
+**PR:** https://github.com/example/repo/pull/${prNumber}
+**Branch:** ${branch}
+**Generated:** ${generated}
+**Status:** ${status}
+**Source counts:** ${sourceCounts}
+
+${body}`;
+}
+
 describe('parseDocument — pr-42-auto-review.md', () => {
   const raw = loadFixture('pr-42-auto-review.md');
   const doc = parseDocument(raw);
@@ -48,7 +68,7 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     expect(doc.header.status).toBe('PENDING REVIEW');
   });
 
-  it('sourceCounts is NOT on header (H9)', () => {
+  it('sourceCounts is NOT on header', () => {
     expect((doc.header as Record<string, unknown>)['sourceCounts']).toBeUndefined();
   });
 
@@ -62,9 +82,9 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     }
   });
 
-  // Item 0: [?] auto:critical — src/router.ts:42
   describe('item 0 — critical auto-review with file:line', () => {
     const item = doc.items[0];
+    if (item.dirty !== false) { throw new Error('test fixture expected clean'); }
 
     it('status marker', () => expect(item.status).toBe('unresolved'));
     it('source kind', () => expect(item.source.kind).toBe('auto-review'));
@@ -101,7 +121,6 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     });
   });
 
-  // Item 1: [x] reviewer:@alice — review body
   describe('item 1 — important reviewer review-body', () => {
     const item = doc.items[1];
 
@@ -117,7 +136,6 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     it('reportedBy[0]', () => expect(item.reportedBy[0]).toBe('@alice'));
   });
 
-  // Item 2: [~] auto:important — src/api-client.ts:12
   describe('item 2 — important auto-review', () => {
     const item = doc.items[2];
 
@@ -137,9 +155,9 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     });
   });
 
-  // Item 3: [d] auto:critical — dual-author with Note line
   describe('item 3 — dual-author item with Note line', () => {
     const item = doc.items[3];
+    if (item.dirty !== false) { throw new Error('test fixture expected clean'); }
 
     it('status marker', () => expect(item.status).toBe('deferred'));
     it('source kind', () => expect(item.source.kind).toBe('auto-review'));
@@ -185,7 +203,6 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     });
   });
 
-  // Item 4: [-] auto:suggestion
   describe('item 4 — suggestion auto-review', () => {
     const item = doc.items[4];
 
@@ -205,7 +222,6 @@ describe('parseDocument — pr-42-auto-review.md', () => {
     });
   });
 
-  // Item 5: [?] reviewer:@alice — nit on src/types.ts
   describe('item 5 — nit reviewer with file:line', () => {
     const item = doc.items[5];
 
@@ -232,9 +248,6 @@ describe('parseDocument — pr-42-auto-review.md', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// SHA-absent variant
-// ---------------------------------------------------------------------------
 describe('parseDocument — SHA-absent header', () => {
   const raw = `# PR Review Handover: #99
 
@@ -278,65 +291,34 @@ describe('parseDocument — SHA-absent header', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Error cases
-// ---------------------------------------------------------------------------
 describe('parseDocument — malformed branch', () => {
-  const raw = `# PR Review Handover: #1
-
-**PR:** https://github.com/example/repo/pull/1
-**Branch:** feat/broken-no-arrow
-**Generated:** 2024-01-01T00:00:00Z
-**Status:** PENDING REVIEW
-**Source counts:** 0 auto-review findings, 0 human reviewer comments, 0 total (0 critical, 0 important, 0 suggestion/nit)
-`;
+  const raw = makeDoc({ prNumber: 1, branch: 'feat/broken-no-arrow' });
 
   it('throws ParseError', () => {
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 
-  it('ParseError state is IN_HEADER', () => {
+  it('ParseError has exact state, lineNumber, offset', () => {
     try {
       parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
     } catch (e) {
       expect(e).toBeInstanceOf(ParseError);
       if (e instanceof ParseError) {
         expect(e.state).toBe('IN_HEADER');
-      }
-    }
-  });
-
-  it('ParseError has lineNumber >= 0', () => {
-    try {
-      parseDocument(raw);
-    } catch (e) {
-      if (e instanceof ParseError) {
-        expect(e.lineNumber).toBeGreaterThanOrEqual(0);
-      }
-    }
-  });
-
-  it('ParseError has offset >= 0', () => {
-    try {
-      parseDocument(raw);
-    } catch (e) {
-      if (e instanceof ParseError) {
-        expect(e.offset).toBeGreaterThanOrEqual(0);
+        expect(e.lineNumber).toBe(4);
+        const branchLineOffset = raw.indexOf('**Branch:**');
+        expect(e.offset).toBe(branchLineOffset);
       }
     }
   });
 });
 
 describe('parseDocument — malformed item heading', () => {
-  const raw = `# PR Review Handover: #2
-
-**PR:** https://github.com/example/repo/pull/2
-**Branch:** feat/ok → main
-**Generated:** 2024-01-01T00:00:00Z
-**Status:** PENDING REVIEW
-**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)
-
----
+  const raw = makeDoc({
+    prNumber: 2,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
 
 ## [INVALID] auto:critical — src/foo.ts:1
 
@@ -348,10 +330,19 @@ describe('parseDocument — malformed item heading', () => {
 **Recommendation:** Fix.
 **Options:**
 **Resolution:** <!-- mark with [x] when resolved -->
-`;
+`,
+  });
 
-  it('throws ParseError', () => {
-    expect(() => parseDocument(raw)).toThrow(ParseError);
+  it('throws ParseError with state BETWEEN_ITEMS', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('BETWEEN_ITEMS');
+      }
+    }
   });
 });
 
@@ -377,31 +368,28 @@ describe('parseDocument — missing Source counts header', () => {
 **Resolution:** Done.
 `;
 
-  it('throws ParseError (C6)', () => {
+  it('throws ParseError', () => {
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 
   it('ParseError mentions Source counts', () => {
     try {
       parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
     } catch (e) {
       if (e instanceof ParseError) {
         expect(e.message).toContain('Source counts');
+        expect(e.state).toBe('IN_HEADER');
       }
     }
   });
 });
 
 describe('parseDocument — reviewer item missing Severity field', () => {
-  const raw = `# PR Review Handover: #4
-
-**PR:** https://github.com/example/repo/pull/4
-**Branch:** feat/ok → main
-**Generated:** 2024-01-01T00:00:00Z
-**Status:** PENDING REVIEW
-**Source counts:** 0 auto-review findings, 1 human reviewer comments, 1 total (0 critical, 0 important, 1 suggestion/nit)
-
----
+  const raw = makeDoc({
+    prNumber: 4,
+    sourceCounts: '0 auto-review findings, 1 human reviewer comments, 1 total (0 critical, 0 important, 1 suggestion/nit)',
+    body: `---
 
 ## [?] reviewer:@bob — src/foo.ts:1
 
@@ -414,34 +402,32 @@ describe('parseDocument — reviewer item missing Severity field', () => {
 **Resolution:**
 
 ---
-`;
+`,
+  });
 
-  it('throws ParseError (A3)', () => {
+  it('throws ParseError', () => {
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 
-  it('ParseError mentions Severity', () => {
+  it('ParseError mentions Severity and state is IN_ITEM_FIELDS', () => {
     try {
       parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
     } catch (e) {
       if (e instanceof ParseError) {
         expect(e.message).toContain('Severity');
+        expect(e.state).toBe('IN_ITEM_FIELDS');
       }
     }
   });
 });
 
 describe('parseDocument — invalid auto-review severity in heading', () => {
-  it('throws ParseError for auto:bogus (A1)', () => {
-    const raw = `# PR Review Handover: #5
-
-**PR:** https://github.com/example/repo/pull/5
-**Branch:** feat/ok → main
-**Generated:** 2024-01-01T00:00:00Z
-**Status:** PENDING REVIEW
-**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 0 important, 0 suggestion/nit)
-
----
+  it('throws ParseError for auto:bogus', () => {
+    const raw = makeDoc({
+      prNumber: 5,
+      sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 0 important, 0 suggestion/nit)',
+      body: `---
 
 ## [?] auto:bogus — src/foo.ts:1
 
@@ -455,20 +441,16 @@ describe('parseDocument — invalid auto-review severity in heading', () => {
 **Resolution:**
 
 ---
-`;
+`,
+    });
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 
-  it('throws ParseError for auto:CRITICAL uppercase (A2)', () => {
-    const raw = `# PR Review Handover: #6
-
-**PR:** https://github.com/example/repo/pull/6
-**Branch:** feat/ok → main
-**Generated:** 2024-01-01T00:00:00Z
-**Status:** PENDING REVIEW
-**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)
-
----
+  it('throws ParseError for auto:CRITICAL uppercase', () => {
+    const raw = makeDoc({
+      prNumber: 6,
+      sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+      body: `---
 
 ## [?] auto:CRITICAL — src/foo.ts:1
 
@@ -482,8 +464,8 @@ describe('parseDocument — invalid auto-review severity in heading', () => {
 **Resolution:**
 
 ---
-`;
-    // ITEM_HEADING_RE only allows [a-z]+ for severity, so CRITICAL won't match → ParseError
+`,
+    });
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 });
@@ -517,7 +499,7 @@ describe('parseDocument — CRLF normalization', () => {
 });
 
 describe('parseDocument — non-standard prUrl', () => {
-  it('throws ParseError when prUrl does not end in /pull/<n> (H4)', () => {
+  it('throws ParseError when prUrl does not end in /pull/<n>', () => {
     const raw = `# PR Review Handover: #7
 
 **PR:** https://github.com/example/repo/issues/7
@@ -636,7 +618,7 @@ describe('parseDocument — reviewer login variants', () => {
   });
 });
 
-describe('parseDocument — multi-line resolution (C3+C4)', () => {
+describe('parseDocument — multi-line resolution', () => {
   it('captures multi-line resolution fully', () => {
     const raw = `# PR Review Handover: #11
 
@@ -698,7 +680,7 @@ describe('parseDocument — trailing separator absent', () => {
 });
 
 describe('parseDocument — source counts mismatch', () => {
-  it('throws ParseError when source counts do not match items (H9)', () => {
+  it('throws ParseError when source counts do not match items', () => {
     const raw = `# PR Review Handover: #13
 
 **PR:** https://github.com/example/repo/pull/13
@@ -722,7 +704,6 @@ describe('parseDocument — source counts mismatch', () => {
 
 ---
 `;
-    // Only 1 item but source counts says 2
     expect(() => parseDocument(raw)).toThrow(ParseError);
   });
 });
@@ -762,7 +743,7 @@ describe('parseDocument — reviewer Severity before Source field', () => {
 });
 
 describe('parseDocument — branch arrow variants', () => {
-  function makeDoc(branchStr: string): string {
+  function makeBranchDoc(branchStr: string): string {
     return `# PR Review Handover: #15
 
 **PR:** https://github.com/example/repo/pull/15
@@ -776,15 +757,15 @@ describe('parseDocument — branch arrow variants', () => {
   }
 
   it('ASCII -> arrow throws ParseError', () => {
-    expect(() => parseDocument(makeDoc('feat/x -> main'))).toThrow(ParseError);
+    expect(() => parseDocument(makeBranchDoc('feat/x -> main'))).toThrow(ParseError);
   });
 
   it('ASCII => arrow throws ParseError', () => {
-    expect(() => parseDocument(makeDoc('feat/x => main'))).toThrow(ParseError);
+    expect(() => parseDocument(makeBranchDoc('feat/x => main'))).toThrow(ParseError);
   });
 
   it('pipe separator throws ParseError', () => {
-    expect(() => parseDocument(makeDoc('feat/x | main'))).toThrow(ParseError);
+    expect(() => parseDocument(makeBranchDoc('feat/x | main'))).toThrow(ParseError);
   });
 });
 
@@ -814,5 +795,276 @@ describe('parseDocument — item heading dash variants', () => {
 ---
 `;
     expect(() => parseDocument(raw)).toThrow(ParseError);
+  });
+});
+
+describe('parseDocument — missing Reported by field', () => {
+  const itemBody = `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`;
+  const raw = makeDoc({
+    prNumber: 17,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: itemBody,
+  });
+
+  it('throws ParseError', () => {
+    expect(() => parseDocument(raw)).toThrow(ParseError);
+  });
+
+  it('ParseError has state IN_ITEM_FIELDS and points at item startOffset', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_ITEM_FIELDS');
+        expect(e.message).toContain('Reported by');
+        const itemHeadingOffset = raw.indexOf('## [?] auto:critical');
+        expect(e.offset).toBe(itemHeadingOffset);
+      }
+    }
+  });
+});
+
+describe('parseDocument — unknown field in item', () => {
+  const raw = makeDoc({
+    prNumber: 18,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**UnknownField:** value
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError with state IN_ITEM_FIELDS', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_ITEM_FIELDS');
+        expect(e.message).toContain('UnknownField');
+        const unknownLineOffset = raw.indexOf('**UnknownField:**');
+        expect(e.offset).toBe(unknownLineOffset);
+      }
+    }
+  });
+});
+
+describe('parseDocument — non-blank non-field line in item body', () => {
+  const raw = makeDoc({
+    prNumber: 19,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+This is a paragraph.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError with state IN_ITEM_FIELDS', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_ITEM_FIELDS');
+        const paragraphLineOffset = raw.indexOf('This is a paragraph.');
+        expect(e.offset).toBe(paragraphLineOffset);
+      }
+    }
+  });
+});
+
+describe('parseDocument — unexpected field in options block', () => {
+  const raw = makeDoc({
+    prNumber: 20,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+- Option A
+**Severity:** critical
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError with state IN_OPTIONS', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_OPTIONS');
+        expect(e.message).toContain('Severity');
+        const secondSeverityLine = raw.lastIndexOf('**Severity:**');
+        expect(e.offset).toBe(secondSeverityLine);
+      }
+    }
+  });
+});
+
+describe('parseDocument — invalid generatedAt', () => {
+  const raw = makeDoc({
+    prNumber: 21,
+    generated: 'January 15 2024',
+    sourceCounts: '0 auto-review findings, 0 human reviewer comments, 0 total (0 critical, 0 important, 0 suggestion/nit)',
+    body: '---\n',
+  });
+
+  it('throws ParseError wrapping ZodError', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toContain('Schema validation failed');
+        expect(e.cause).toBeDefined();
+      }
+    }
+  });
+});
+
+describe('parseDocument — resolved status with empty resolution', () => {
+  const raw = makeDoc({
+    prNumber: 22,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [x] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError wrapping ZodError', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toContain('Schema validation failed');
+      }
+    }
+  });
+});
+
+describe('parseDocument — custom status with empty resolution', () => {
+  const raw = makeDoc({
+    prNumber: 23,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [~] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError wrapping ZodError', () => {
+    expect(() => parseDocument(raw)).toThrow(ParseError);
+  });
+});
+
+describe('parseDocument — empty comment value', () => {
+  const raw = makeDoc({
+    prNumber: 24,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:**
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+  });
+
+  it('throws ParseError wrapping ZodError', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toContain('Schema validation failed');
+      }
+    }
   });
 });

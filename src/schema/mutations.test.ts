@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution } from './mutations';
 import type { FindingItem } from './types';
 
-// A minimal FindingItem fixture for mutation tests
 const baseItem: FindingItem = {
   status: 'unresolved',
   source: { kind: 'auto-review', severity: 'critical' },
@@ -17,39 +16,48 @@ const baseItem: FindingItem = {
   dirty: false,
 };
 
-describe('markResolved', () => {
+describe.each([
+  { name: 'markResolved', fn: (i: FindingItem) => markResolved(i, 'x'), status: 'resolved' as const },
+  { name: 'markCustom',   fn: (i: FindingItem) => markCustom(i, 'x'),   status: 'custom'   as const },
+  { name: 'markDeferred', fn: markDeferred,                              status: 'deferred' as const },
+  { name: 'markSkipped',  fn: markSkipped,                               status: 'skipped'  as const },
+  { name: 'markUnresolved', fn: markUnresolved,                          status: 'unresolved' as const },
+])('$name — shared assertions', ({ fn, status }) => {
+  const result = fn(baseItem);
+
   it('returns a new object reference', () => {
-    const result = markResolved(baseItem, 'Done');
     expect(result).not.toBe(baseItem);
   });
 
-  it('sets status to resolved', () => {
-    const result = markResolved(baseItem, 'Done');
-    expect(result.status).toBe('resolved');
-  });
-
-  it('sets the resolution text', () => {
-    const result = markResolved(baseItem, 'Fixed in PR #99');
-    expect(result.resolution).toBe('Fixed in PR #99');
+  it('sets status', () => {
+    expect(result.status).toBe(status);
   });
 
   it('sets dirty: true', () => {
-    const result = markResolved(baseItem, 'Done');
     expect(result.dirty).toBe(true);
   });
 
-  it('does NOT mutate the original status', () => {
-    markResolved(baseItem, 'Done');
+  it('does not mutate original status', () => {
     expect(baseItem.status).toBe('unresolved');
   });
 
-  it('does NOT mutate the original dirty flag', () => {
-    markResolved(baseItem, 'Done');
+  it('does not mutate original dirty', () => {
     expect(baseItem.dirty).toBe(false);
   });
 
-  it('preserves other fields unchanged', () => {
-    const result = markResolved(baseItem, 'Done');
+  it('options is a new array reference', () => {
+    expect(result.options).not.toBe(baseItem.options);
+  });
+
+  it('reportedBy is a new array reference', () => {
+    expect(result.reportedBy).not.toBe(baseItem.reportedBy);
+  });
+
+  it('preserves rawSource', () => {
+    expect(result.rawSource).toBe(baseItem.rawSource);
+  });
+
+  it('preserves other fields deep-equal', () => {
     expect(result.source).toEqual(baseItem.source);
     expect(result.location).toEqual(baseItem.location);
     expect(result.comment).toBe(baseItem.comment);
@@ -57,6 +65,13 @@ describe('markResolved', () => {
     expect(result.recommendation).toBe(baseItem.recommendation);
     expect(result.options).toEqual(baseItem.options);
     expect(result.reportedBy).toEqual(baseItem.reportedBy);
+  });
+});
+
+describe('markResolved', () => {
+  it('sets the resolution text', () => {
+    const result = markResolved(baseItem, 'Fixed in PR #99');
+    expect(result.resolution).toBe('Fixed in PR #99');
   });
 
   it('allows empty string resolution (pins behavior)', () => {
@@ -67,106 +82,9 @@ describe('markResolved', () => {
 });
 
 describe('markCustom', () => {
-  it('returns a new object reference', () => {
-    const result = markCustom(baseItem, 'Approved with edits');
-    expect(result).not.toBe(baseItem);
-  });
-
-  it('sets status to custom', () => {
-    const result = markCustom(baseItem, 'Approved with edits');
-    expect(result.status).toBe('custom');
-  });
-
   it('sets the resolution text', () => {
     const result = markCustom(baseItem, 'Approved with edits');
     expect(result.resolution).toBe('Approved with edits');
-  });
-
-  it('sets dirty: true', () => {
-    const result = markCustom(baseItem, 'Approved with edits');
-    expect(result.dirty).toBe(true);
-  });
-
-  it('does NOT mutate the original', () => {
-    markCustom(baseItem, 'Approved with edits');
-    expect(baseItem.status).toBe('unresolved');
-    expect(baseItem.dirty).toBe(false);
-  });
-
-  it('preserves other fields unchanged', () => {
-    const result = markCustom(baseItem, 'Approved with edits');
-    expect(result.source).toEqual(baseItem.source);
-    expect(result.location).toEqual(baseItem.location);
-    expect(result.comment).toBe(baseItem.comment);
-  });
-});
-
-describe('markDeferred', () => {
-  it('returns a new object reference', () => {
-    const result = markDeferred(baseItem);
-    expect(result).not.toBe(baseItem);
-  });
-
-  it('sets status to deferred', () => {
-    const result = markDeferred(baseItem);
-    expect(result.status).toBe('deferred');
-  });
-
-  it('sets dirty: true', () => {
-    const result = markDeferred(baseItem);
-    expect(result.dirty).toBe(true);
-  });
-
-  it('does NOT mutate the original', () => {
-    markDeferred(baseItem);
-    expect(baseItem.status).toBe('unresolved');
-    expect(baseItem.dirty).toBe(false);
-  });
-
-  it('preserves resolution unchanged', () => {
-    const result = markDeferred(baseItem);
-    expect(result.resolution).toBe(baseItem.resolution);
-  });
-
-  it('preserves other fields unchanged', () => {
-    const result = markDeferred(baseItem);
-    expect(result.source).toEqual(baseItem.source);
-    expect(result.location).toEqual(baseItem.location);
-    expect(result.comment).toBe(baseItem.comment);
-  });
-});
-
-describe('markSkipped', () => {
-  it('returns a new object reference', () => {
-    const result = markSkipped(baseItem);
-    expect(result).not.toBe(baseItem);
-  });
-
-  it('sets status to skipped', () => {
-    const result = markSkipped(baseItem);
-    expect(result.status).toBe('skipped');
-  });
-
-  it('sets dirty: true', () => {
-    const result = markSkipped(baseItem);
-    expect(result.dirty).toBe(true);
-  });
-
-  it('does NOT mutate the original', () => {
-    markSkipped(baseItem);
-    expect(baseItem.status).toBe('unresolved');
-    expect(baseItem.dirty).toBe(false);
-  });
-
-  it('preserves resolution unchanged', () => {
-    const result = markSkipped(baseItem);
-    expect(result.resolution).toBe(baseItem.resolution);
-  });
-
-  it('preserves other fields unchanged', () => {
-    const result = markSkipped(baseItem);
-    expect(result.source).toEqual(baseItem.source);
-    expect(result.location).toEqual(baseItem.location);
   });
 });
 
@@ -178,36 +96,9 @@ describe('markUnresolved', () => {
     dirty: true,
   };
 
-  it('returns a new object reference', () => {
-    const result = markUnresolved(resolvedItem);
-    expect(result).not.toBe(resolvedItem);
-  });
-
-  it('sets status to unresolved', () => {
-    const result = markUnresolved(resolvedItem);
-    expect(result.status).toBe('unresolved');
-  });
-
-  it('sets dirty: true', () => {
-    const result = markUnresolved(resolvedItem);
-    expect(result.dirty).toBe(true);
-  });
-
-  it('does NOT mutate the original', () => {
-    markUnresolved(resolvedItem);
-    expect(resolvedItem.status).toBe('resolved');
-  });
-
   it('preserves resolution (does not clear it)', () => {
     const result = markUnresolved(resolvedItem);
     expect(result.resolution).toBe('Previously resolved');
-  });
-
-  it('preserves other fields unchanged', () => {
-    const result = markUnresolved(resolvedItem);
-    expect(result.source).toEqual(resolvedItem.source);
-    expect(result.location).toEqual(resolvedItem.location);
-    expect(result.comment).toBe(resolvedItem.comment);
   });
 });
 
@@ -237,6 +128,26 @@ describe('withResolution', () => {
     expect(baseItem.dirty).toBe(false);
   });
 
+  it('does not change status', () => {
+    const result = withResolution(baseItem, 'Some text');
+    expect(result.status).toBe('unresolved');
+  });
+
+  it('options is a new array reference', () => {
+    const result = withResolution(baseItem, 'Done');
+    expect(result.options).not.toBe(baseItem.options);
+  });
+
+  it('reportedBy is a new array reference', () => {
+    const result = withResolution(baseItem, 'Done');
+    expect(result.reportedBy).not.toBe(baseItem.reportedBy);
+  });
+
+  it('preserves rawSource', () => {
+    const result = withResolution(baseItem, 'Done');
+    expect(result.rawSource).toBe(baseItem.rawSource);
+  });
+
   it('preserves other fields unchanged', () => {
     const result = withResolution(baseItem, 'Done');
     expect(result.status).toBe(baseItem.status);
@@ -246,11 +157,6 @@ describe('withResolution', () => {
     expect(result.analysis).toBe(baseItem.analysis);
     expect(result.recommendation).toBe(baseItem.recommendation);
     expect(result.options).toEqual(baseItem.options);
-  });
-
-  it('does not change status', () => {
-    const result = withResolution(baseItem, 'Some text');
-    expect(result.status).toBe('unresolved');
   });
 });
 
@@ -273,7 +179,6 @@ describe('chaining', () => {
     const result = markUnresolved(markResolved(baseItem, 'Done'));
     expect(result.status).toBe('unresolved');
     expect(result.dirty).toBe(true);
-    // resolution from prior step is preserved
     expect(result.resolution).toBe('Done');
   });
 

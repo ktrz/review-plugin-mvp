@@ -83,8 +83,13 @@ describe('hybrid serialization', () => {
       items: doc.items.map(item => markDeferred(item)),
     };
     const serialized = serializeDocument(mutatedDoc);
-    // Should be able to re-parse the result
     expect(() => parseDocument(serialized)).not.toThrow();
+    const doc2 = parseDocument(serialized);
+    for (let i = 0; i < doc.items.length; i++) {
+      if (doc.items[i].options.length > 0) {
+        expect(doc2.items[i].options).toEqual(doc.items[i].options);
+      }
+    }
   });
 
   it('first item dirty only → re-parse cleanly', () => {

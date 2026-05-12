@@ -62,7 +62,7 @@ describe('round-trip — parse → serialize → parse', () => {
   });
 
   // Per-item structural equality
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < doc1.items.length; i++) {
     describe(`item ${i}`, () => {
       it('status matches', () => {
         expect(doc2.items[i].status).toBe(doc1.items[i].status);
@@ -104,6 +104,23 @@ describe('round-trip — parse → serialize → parse', () => {
       };
       const s = serializeDocument(mutatedDoc);
       expect(s).toContain('**Resolution:** Custom resolution');
+    });
+
+    it('markResolved → re-parse preserves all item fields', () => {
+      const item = doc1.items[0];
+      const resolved = markResolved(item, 'Custom resolution');
+      const mutatedDoc = {
+        ...doc1,
+        items: doc1.items.map((it, idx) => idx === 0 ? resolved : it),
+      };
+      const s = serializeDocument(mutatedDoc);
+      const doc2 = parseDocument(s);
+      expect(doc2.items[0].comment).toBe(item.comment);
+      expect(doc2.items[0].analysis).toBe(item.analysis);
+      expect(doc2.items[0].recommendation).toBe(item.recommendation);
+      expect(doc2.items[0].options).toEqual(item.options);
+      expect(doc2.items[0].resolution).toBe('Custom resolution');
+      expect(doc2.items[0].status).toBe('resolved');
     });
   });
 });

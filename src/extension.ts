@@ -1,9 +1,7 @@
 import * as vscode from 'vscode';
 
 export function activate(_context: vscode.ExtensionContext): void {
-  // Extension activated — navigation and decision UI will be wired here
+  // TODO: wire navigation + decision UI
 }
 
-export function deactivate(): void {
-  // Cleanup on deactivation
-}
+export function deactivate(): void {}

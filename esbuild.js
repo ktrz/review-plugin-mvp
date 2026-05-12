@@ -39,6 +39,12 @@ const esbuildProblemMatcherPlugin = {
           console.error(`    ${location.file}:${location.line}:${location.column}:`);
         }
       });
+      result.warnings.forEach(({ text, location }) => {
+        console.warn(`⚠ [WARN] ${text}`);
+        if (location) {
+          console.warn(`    ${location.file}:${location.line}:${location.column}:`);
+        }
+      });
       console.log('[watch] build finished');
     });
   },

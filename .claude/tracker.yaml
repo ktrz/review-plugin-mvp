@@ -1,0 +1,6 @@
+tracker:
+  type: github
+
+  github:
+    repo: "ktrz/review-plugin-mvp"
+    in_review_label: "in-review"

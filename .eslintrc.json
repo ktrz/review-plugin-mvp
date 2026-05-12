@@ -19,5 +19,19 @@
     "no-throw-literal": "warn",
     "semi": "warn"
   },
-  "ignorePatterns": ["out", "dist", "**/*.d.ts"]
+  "ignorePatterns": ["out", "dist", "**/*.d.ts"],
+  "overrides": [
+    {
+      "files": ["src/schema/**/*.ts"],
+      "excludedFiles": ["src/schema/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": ["vscode", "fs", "node:fs"]
+          }
+        ]
+      }
+    }
+  ]
 }

@@ -2,8 +2,10 @@
 export {
   SeveritySchema,
   StatusMarkerSchema,
+  LocationSchema,
   SourceSchema,
   FindingItemSchema,
+  BranchRefSchema,
   DocumentHeaderSchema,
   HandoverDocumentSchema,
 } from './types';
@@ -11,7 +13,9 @@ export {
 export type {
   Severity,
   StatusMarker,
+  Location,
   Source,
+  BranchRef,
   FindingItem,
   DocumentHeader,
   HandoverDocument,
@@ -25,4 +29,4 @@ export type { ParserState } from './parse';
 export { serializeDocument } from './serialize';
 
 // Mutations
-export { withStatus, withResolution } from './mutations';
+export { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution } from './mutations';

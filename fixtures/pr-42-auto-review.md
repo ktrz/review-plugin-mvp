@@ -6,7 +6,7 @@
 **Base SHA:** def5678901234abcdef5678901234abcdef56789
 **Generated:** 2024-01-15T10:30:00Z
 **Status:** PENDING REVIEW
-**Source counts:** 4 auto-review findings, 2 human reviewer comments, 6 total (1 critical, 2 important, 3 suggestion/nit)
+**Source counts:** 4 auto-review findings, 2 human reviewer comments, 6 total (2 critical, 2 important, 2 suggestion/nit)
 
 ---
 

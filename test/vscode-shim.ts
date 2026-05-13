@@ -160,6 +160,10 @@ export const comments = makeNamespace([
   'createCommentController',
 ] as const);
 
+export const authentication = makeNamespace([
+  'getSession',
+] as const);
+
 export const env = {
   clipboard: {
     writeText: vi.fn(),
@@ -168,7 +172,7 @@ export const env = {
 };
 
 export function __resetShimNamespaces(): void {
-  for (const ns of [workspace, window, commands, comments]) {
+  for (const ns of [workspace, window, commands, comments, authentication]) {
     for (const key of Object.keys(ns)) {
       const value = (ns as Record<string, unknown>)[key];
       if (typeof value === 'function' && 'mockReset' in (value as object)) {

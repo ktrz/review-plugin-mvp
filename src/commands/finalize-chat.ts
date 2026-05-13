@@ -12,6 +12,8 @@ import type { LoadedFindings } from '../runtime/findings-state';
 import type { FindingsWriter } from '../runtime/findings-writer';
 import type { RenderChatDeps } from '../comments/chat-renderer';
 
+export const FINALIZE_CHAT_COMMAND_ID = 'reviewPlugin.thread.finalizeChat';
+
 export interface FinalizeChatLog {
   info: (msg: string) => void;
   warn: (msg: string) => void;

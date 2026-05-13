@@ -49,6 +49,18 @@
         "command": "reviewPlugin.session.finalize",
         "title": "Finalize session",
         "category": "Review"
+      },
+      {
+        "command": "reviewPlugin.chat.send",
+        "title": "Send",
+        "category": "Review",
+        "icon": "$(send)"
+      },
+      {
+        "command": "reviewPlugin.thread.finalizeChat",
+        "title": "Finalize chat (custom)",
+        "category": "Review",
+        "icon": "$(milestone)"
       }
     ],
     "menus": {
@@ -56,6 +68,14 @@
         {
           "command": "reviewPlugin.session.finalize",
           "when": "reviewPlugin.hasFindings"
+        },
+        {
+          "command": "reviewPlugin.chat.send",
+          "when": "false"
+        },
+        {
+          "command": "reviewPlugin.thread.finalizeChat",
+          "when": "false"
         }
       ],
       "comments/commentThread/title": [
@@ -75,11 +95,40 @@
           "group": "inline@3"
         },
         {
+          "command": "reviewPlugin.thread.finalizeChat",
+          "when": "commentThread =~ /review-finding-deferred-chatting/",
+          "group": "inline@0"
+        },
+        {
           "command": "reviewPlugin.thread.unresolve",
           "when": "commentThread =~ /review-finding-(resolved|skipped|custom)/",
           "group": "inline@1"
         }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "reviewPlugin.chat.send",
+          "group": "inline"
+        }
       ]
+    },
+    "configuration": {
+      "title": "Review Plugin",
+      "properties": {
+        "reviewPlugin.claude.cliPath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to the claude CLI binary used for chat replies."
+        },
+        "reviewPlugin.claude.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra argv appended after `-p` when invoking the claude CLI."
+        }
+      }
     }
   },
   "scripts": {

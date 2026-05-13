@@ -47,11 +47,19 @@ export function refreshThread(
   }
   const sourceLabel = formatSourceLabel(newItem.source);
   thread.label = `[${newItem.status}] ${newItem.source.severity} · ${sourceLabel}`;
-  thread.contextValue = contextValueForStatus(newItem.status);
+  thread.contextValue = computeContextValue(newItem);
   thread.state = threadStateForStatus(newItem.status);
   thread.collapsibleState = collapsibleStateForStatus(newItem.status);
   thread.comments = [composeRefreshedComment(newItem, thread.comments[0])];
   idToEntry.set(id, { thread, item: newItem });
+}
+
+function computeContextValue(item: FindingItem): string {
+  const base = contextValueForStatus(item.status);
+  if (item.status === 'deferred' && (item.chat?.length ?? 0) > 0) {
+    return `${base}-chatting`;
+  }
+  return base;
 }
 
 export interface ReconcileDeps {

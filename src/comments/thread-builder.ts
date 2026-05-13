@@ -2,27 +2,25 @@ import path from 'node:path';
 import * as vscode from 'vscode';
 import type { FindingItem, Source, StatusMarker } from '../schema';
 
-export interface BuildThreadDeps {
+interface BuildThreadDeps {
   finding: FindingItem;
   controller: vscode.CommentController;
   workspaceRoot: string;
 }
 
 export interface BuildThreadEntryDeps {
-  finding: FindingItemWithId;
+  finding: FindingItem;
   controller: vscode.CommentController;
   workspaceRoot: string;
 }
 
-export type FindingItemWithId = FindingItem & { id: string };
-
 export interface ThreadEntry {
   thread: vscode.CommentThread;
   id: string;
-  item: FindingItemWithId;
+  item: FindingItem;
 }
 
-export function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
+function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
   const { finding, controller, workspaceRoot } = deps;
   if (finding.location.kind !== 'file') {
     return null;

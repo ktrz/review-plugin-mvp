@@ -8,9 +8,9 @@ import {
   reconcileEntries,
   refreshThread,
   setActiveEntries,
-  setActiveThreads,
 } from './render-session';
-import type { FindingItemWithId, ThreadEntry } from './thread-builder';
+import type { ThreadEntry } from './thread-builder';
+import type { FindingItem } from '../schema';
 import {
   __resetOutputChannelForTests,
   setOutputChannel,
@@ -30,9 +30,9 @@ const makeThread = (label = 'thread'): vscode.CommentThread => {
 
 const makeItem = (
   id: string,
-  overrides: Partial<FindingItemWithId> = {},
-): FindingItemWithId => {
-  const base: FindingItemWithId = {
+  overrides: Partial<FindingItem> = {},
+): FindingItem => {
+  const base: FindingItem = {
     id,
     dirty: false,
     rawSource: 'raw',
@@ -46,12 +46,12 @@ const makeItem = (
     options: [],
     resolution: '',
   };
-  return { ...base, ...overrides } satisfies FindingItemWithId;
+  return { ...base, ...overrides } satisfies FindingItem;
 };
 
 const makeEntry = (
   id: string,
-  itemOverrides: Partial<FindingItemWithId> = {},
+  itemOverrides: Partial<FindingItem> = {},
 ): ThreadEntry => ({
   thread: makeThread(`thread-${id}`),
   id,
@@ -63,66 +63,14 @@ describe('render-session', () => {
     disposeAll();
   });
 
-  describe('setActiveThreads', () => {
-    it('installs threads into the registry', () => {
-      const t1 = makeThread('a');
-      const t2 = makeThread('b');
-      setActiveThreads([t1, t2]);
-      expect(getActiveThreads()).toEqual([t1, t2]);
-    });
-
-    it('disposes previously active threads in iteration order before replacing', () => {
-      const order: string[] = [];
-      const previous1Dispose = vi.fn(() => {
-        order.push('p1');
-      });
-      const previous2Dispose = vi.fn(() => {
-        order.push('p2');
-      });
-      const previous1Fake: Partial<vscode.CommentThread> = {
-        label: 'p1',
-        dispose: previous1Dispose,
-      };
-      const previous2Fake: Partial<vscode.CommentThread> = {
-        label: 'p2',
-        dispose: previous2Dispose,
-      };
-      const previous1 = previous1Fake as vscode.CommentThread;
-      const previous2 = previous2Fake as vscode.CommentThread;
-      setActiveThreads([previous1, previous2]);
-
-      const next = makeThread('next');
-      setActiveThreads([next]);
-
-      expect(order).toEqual(['p1', 'p2']);
-      expect(previous1Dispose).toHaveBeenCalledTimes(1);
-      expect(previous2Dispose).toHaveBeenCalledTimes(1);
-      expect(getActiveThreads()).toEqual([next]);
-    });
-
-    it('handles being called with an empty array (disposes existing, leaves registry empty)', () => {
-      const t1 = makeThread();
-      setActiveThreads([t1]);
-      setActiveThreads([]);
-      expect(t1.dispose).toHaveBeenCalledTimes(1);
-      expect(getActiveThreads()).toEqual([]);
-    });
-
-    it('does not dispose the incoming threads', () => {
-      const t1 = makeThread();
-      setActiveThreads([t1]);
-      expect(t1.dispose).not.toHaveBeenCalled();
-    });
-  });
-
   describe('disposeAll', () => {
     it('disposes every active thread and clears the registry', () => {
-      const t1 = makeThread();
-      const t2 = makeThread();
-      setActiveThreads([t1, t2]);
+      const e1 = makeEntry('d1');
+      const e2 = makeEntry('d2');
+      setActiveEntries([e1, e2]);
       disposeAll();
-      expect(t1.dispose).toHaveBeenCalledTimes(1);
-      expect(t2.dispose).toHaveBeenCalledTimes(1);
+      expect(e1.thread.dispose).toHaveBeenCalledTimes(1);
+      expect(e2.thread.dispose).toHaveBeenCalledTimes(1);
       expect(getActiveThreads()).toEqual([]);
     });
 
@@ -132,23 +80,23 @@ describe('render-session', () => {
     });
 
     it('is safe to call twice in a row (double-dispose protection)', () => {
-      const t1 = makeThread();
-      setActiveThreads([t1]);
+      const e = makeEntry('d3');
+      setActiveEntries([e]);
       disposeAll();
       expect(() => disposeAll()).not.toThrow();
-      expect(t1.dispose).toHaveBeenCalledTimes(1);
+      expect(e.thread.dispose).toHaveBeenCalledTimes(1);
       expect(getActiveThreads()).toEqual([]);
     });
   });
 
   describe('getActiveThreads', () => {
-    it('returns the current registry contents', () => {
-      const t = makeThread();
-      setActiveThreads([t]);
-      expect(getActiveThreads()).toEqual([t]);
+    it('returns the threads from the active entries', () => {
+      const e = makeEntry('g1');
+      setActiveEntries([e]);
+      expect(getActiveThreads()).toEqual([e.thread]);
     });
 
-    it('returns an empty array before any setActiveThreads call', () => {
+    it('returns an empty array before any setActiveEntries call', () => {
       expect(getActiveThreads()).toEqual([]);
     });
   });
@@ -189,7 +137,10 @@ describe('render-session', () => {
       const throwing = throwingFake as vscode.CommentThread;
       const ok = okFake as vscode.CommentThread;
 
-      setActiveThreads([throwing, ok]);
+      setActiveEntries([
+        { thread: throwing, id: 'err-1', item: makeItem('err-1') },
+        { thread: ok, id: 'err-2', item: makeItem('err-2') },
+      ]);
       disposeAll();
 
       expect(throwingDispose).toHaveBeenCalledTimes(1);
@@ -212,7 +163,7 @@ describe('render-session', () => {
         };
         const throwing = throwingFake as vscode.CommentThread;
 
-        setActiveThreads([throwing]);
+        setActiveEntries([{ thread: throwing, id: 'warn-1', item: makeItem('warn-1') }]);
         disposeAll();
 
         expect(throwingDispose).toHaveBeenCalledTimes(1);

@@ -8,9 +8,7 @@ import {
   type StatusMarker,
 } from '../schema';
 import {
-  buildThread,
   buildThreadEntry,
-  type FindingItemWithId,
 } from './thread-builder';
 
 type FakeThread = {
@@ -108,15 +106,15 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
   });
 };
 
-const withId = (item: FindingItem, id = 'id-test'): FindingItemWithId =>
+const withId = (item: FindingItem, id = 'id-test'): FindingItem =>
   Object.assign({}, item, { id });
 
-describe('buildThread', () => {
+describe('buildThreadEntry', () => {
   describe('location filtering', () => {
     it('returns null when finding location.kind is review-body', () => {
       const { controller, createCommentThread } = makeFakeController();
       const finding = makeFinding({ locationKind: 'review-body' });
-      const result = buildThread({ finding, controller, workspaceRoot: '/repo' });
+      const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
       expect(result).toBeNull();
       expect(createCommentThread).not.toHaveBeenCalled();
     });
@@ -126,7 +124,7 @@ describe('buildThread', () => {
     it('joins relative file path to workspace root and uses zero-width range at line-1', () => {
       const { controller, createCommentThread } = makeFakeController();
       const finding = makeFinding({ file: 'src/router.ts', line: 42 });
-      buildThread({ finding, controller, workspaceRoot: '/repo' });
+      buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
       expect(createCommentThread).toHaveBeenCalledTimes(1);
       const [uri, range] = createCommentThread.mock.calls[0];
       expect((uri as { fsPath: string }).fsPath).toBe(path.resolve('/repo', 'src/router.ts'));
@@ -140,7 +138,7 @@ describe('buildThread', () => {
     it('passes absolute file paths through path.resolve unchanged', () => {
       const { controller, createCommentThread } = makeFakeController();
       const finding = makeFinding({ file: '/abs/src/x.ts', line: 1 });
-      buildThread({ finding, controller, workspaceRoot: '/repo' });
+      buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
       const [uri] = createCommentThread.mock.calls[0];
       expect((uri as { fsPath: string }).fsPath).toBe('/abs/src/x.ts');
     });
@@ -149,7 +147,7 @@ describe('buildThread', () => {
   describe('thread metadata', () => {
     it('labels auto-review critical unresolved correctly', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({
           status: 'unresolved',
           sourceKind: 'auto-review',
@@ -163,7 +161,7 @@ describe('buildThread', () => {
 
     it('labels reviewer deferred important with @login', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({
           status: 'deferred',
           sourceKind: 'reviewer',
@@ -178,7 +176,7 @@ describe('buildThread', () => {
 
     it('sets canReply false', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding(),
         controller,
         workspaceRoot: '/repo',
@@ -229,7 +227,7 @@ describe('buildThread', () => {
     for (const variant of statuses) {
       it(`maps status ${variant.status} → contextValue/state/collapsibleState`, () => {
         const { controller, lastThread } = makeFakeController();
-        buildThread({
+        buildThreadEntry({
           finding: makeFinding({ status: variant.status }),
           controller,
           workspaceRoot: '/repo',
@@ -244,7 +242,7 @@ describe('buildThread', () => {
   describe('comment body composition', () => {
     it('contains Comment / Analysis / Recommendation / Options sections as MarkdownString', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({
           comment: 'C1',
           analysis: 'A1',
@@ -271,7 +269,7 @@ describe('buildThread', () => {
 
     it('omits Options block when options array is empty', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({ options: [] }),
         controller,
         workspaceRoot: '/repo',
@@ -282,7 +280,7 @@ describe('buildThread', () => {
 
     it('omits Resolution block (deferred)', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({ status: 'resolved', resolution: 'done' }),
         controller,
         workspaceRoot: '/repo',
@@ -294,7 +292,7 @@ describe('buildThread', () => {
 
     it('uses preview mode for the comment', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding(),
         controller,
         workspaceRoot: '/repo',
@@ -304,7 +302,7 @@ describe('buildThread', () => {
 
     it('sets comment contextValue to review-finding-comment', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding(),
         controller,
         workspaceRoot: '/repo',
@@ -314,7 +312,7 @@ describe('buildThread', () => {
 
     it('sets comment author.name to the source label for auto-review', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({ sourceKind: 'auto-review' }),
         controller,
         workspaceRoot: '/repo',
@@ -324,7 +322,7 @@ describe('buildThread', () => {
 
     it('sets comment author.name to @login for reviewer source', () => {
       const { controller, lastThread } = makeFakeController();
-      buildThread({
+      buildThreadEntry({
         finding: makeFinding({ sourceKind: 'reviewer', login: 'bob' }),
         controller,
         workspaceRoot: '/repo',
@@ -332,31 +330,31 @@ describe('buildThread', () => {
       expect(lastThread().comments[0].author.name).toBe('@bob');
     });
   });
-});
 
-describe('buildThreadEntry', () => {
-  it('returns thread+id+item for a file-anchored finding', () => {
-    const { controller } = makeFakeController();
-    const finding = withId(makeFinding({ file: 'src/x.ts', line: 3 }), 'uuid-1');
-    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
-    expect(result).not.toBeNull();
-    if (result === null) {throw new Error('expected entry');}
-    expect(result.id).toBe('uuid-1');
-    expect(result.item).toBe(finding);
-    expect(result.thread).toBeDefined();
-  });
+  describe('id and item propagation', () => {
+    it('returns thread+id+item for a file-anchored finding', () => {
+      const { controller } = makeFakeController();
+      const finding = withId(makeFinding({ file: 'src/x.ts', line: 3 }), 'uuid-1');
+      const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+      expect(result).not.toBeNull();
+      if (result === null) {throw new Error('expected entry');}
+      expect(result.id).toBe('uuid-1');
+      expect(result.item).toBe(finding);
+      expect(result.thread).toBeDefined();
+    });
 
-  it('returns null when the finding is review-body anchored', () => {
-    const { controller } = makeFakeController();
-    const finding = withId(makeFinding({ locationKind: 'review-body' }), 'uuid-2');
-    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
-    expect(result).toBeNull();
-  });
+    it('returns null when the finding is review-body anchored', () => {
+      const { controller } = makeFakeController();
+      const finding = withId(makeFinding({ locationKind: 'review-body' }), 'uuid-2');
+      const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+      expect(result).toBeNull();
+    });
 
-  it('carries the finding id onto the built entry verbatim', () => {
-    const { controller } = makeFakeController();
-    const finding = withId(makeFinding(), 'the-stable-id');
-    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
-    expect(result?.id).toBe('the-stable-id');
+    it('carries the finding id onto the built entry verbatim', () => {
+      const { controller } = makeFakeController();
+      const finding = withId(makeFinding(), 'the-stable-id');
+      const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+      expect(result?.id).toBe('the-stable-id');
+    });
   });
 });

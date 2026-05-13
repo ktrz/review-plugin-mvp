@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import type { FindingItem } from '../schema';
 import { getOutputChannel } from '../runtime/findings-state';
 import {
   collapsibleStateForStatus,
@@ -7,23 +6,18 @@ import {
   contextValueForStatus,
   formatSourceLabel,
   threadStateForStatus,
-  type FindingItemWithId,
   type ThreadEntry,
 } from './thread-builder';
+import type { FindingItem } from '../schema';
 
 interface RegistryEntry {
   thread: vscode.CommentThread;
-  item: FindingItemWithId;
+  item: FindingItem;
 }
 
 let activeThreads: vscode.CommentThread[] = [];
 const idToEntry = new Map<string, RegistryEntry>();
 const threadToId = new WeakMap<vscode.CommentThread, string>();
-
-export function setActiveThreads(next: readonly vscode.CommentThread[]): void {
-  disposeAll();
-  activeThreads = [...next];
-}
 
 export function setActiveEntries(next: readonly ThreadEntry[]): void {
   disposeAll();
@@ -44,7 +38,7 @@ export function findIdByThread(thread: vscode.CommentThread): string | undefined
 
 export function refreshThread(
   thread: vscode.CommentThread,
-  newItem: FindingItemWithId,
+  newItem: FindingItem,
 ): void {
   const id = threadToId.get(thread);
   if (id === undefined) {

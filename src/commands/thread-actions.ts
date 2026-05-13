@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
-import type { HandoverDocument } from '../schema';
+import type { HandoverDocument, FindingItem } from '../schema';
 import { serializeDocument } from '../schema';
 import { applyDecision, type ThreadDecision } from '../comments/apply-decision';
-import type { FindingItemWithId } from '../comments/thread-builder';
 import {
   findIdByThread as defaultFindIdByThread,
   refreshThread as defaultRefreshThread,
@@ -32,7 +31,7 @@ export type RegisterThreadCommandsDeps = {
   getState: () => ThreadActionState | null;
   setState: (next: ThreadActionState) => void;
   findIdByThread: (thread: vscode.CommentThread) => string | undefined;
-  refreshThread: (thread: vscode.CommentThread, item: FindingItemWithId) => void;
+  refreshThread: (thread: vscode.CommentThread, item: FindingItem) => void;
   runExclusive: <T>(filePath: string, fn: () => Promise<T>) => Promise<T>;
   log: ThreadActionLog;
   showError: (message: string) => Thenable<string | undefined> | void;
@@ -165,7 +164,7 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
 function findItemById(
   doc: HandoverDocument,
   id: string,
-): FindingItemWithId | undefined {
+): FindingItem | undefined {
   return doc.items.find((it) => it.id === id);
 }
 

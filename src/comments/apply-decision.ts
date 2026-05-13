@@ -1,12 +1,17 @@
 import type { FindingItem, HandoverDocument } from '../schema';
 import {
   markResolved,
+  markCustom,
   markSkipped,
   markDeferred,
   markUnresolved,
 } from '../schema';
 
 export type ThreadDecision = 'post' | 'dismiss' | 'discuss' | 'unresolve';
+
+export type FinalizeChatDecision = { kind: 'finalizeChat'; resolution: string };
+
+export type DecisionInput = ThreadDecision | FinalizeChatDecision;
 
 export type ApplyDecisionErrorKind = 'unknown-id' | 'unknown-decision';
 
@@ -35,7 +40,10 @@ export class ApplyDecisionError extends Error {
 
 const POST_RESOLUTION_PLACEHOLDER = '(posted via plugin)';
 
-function mutateForDecision(item: FindingItem, decision: ThreadDecision): FindingItem {
+function mutateForStringDecision(
+  item: FindingItem,
+  decision: ThreadDecision,
+): FindingItem {
   switch (decision) {
     case 'post':
       return markResolved(item, POST_RESOLUTION_PLACEHOLDER);
@@ -52,29 +60,48 @@ function mutateForDecision(item: FindingItem, decision: ThreadDecision): Finding
   }
 }
 
-function isKnownDecision(value: string): value is ThreadDecision {
+function isKnownStringDecision(value: string): value is ThreadDecision {
   return value === 'post' || value === 'dismiss' || value === 'discuss' || value === 'unresolve';
 }
 
 export function applyDecision(
   doc: HandoverDocument,
   findingId: string,
-  decision: ThreadDecision,
+  decision: DecisionInput,
 ): HandoverDocument {
-  if (!isKnownDecision(decision)) {
-    throw new ApplyDecisionError({ kind: 'unknown-decision', decision: String(decision) });
+  const index = doc.items.findIndex((it) => it.id === findingId);
+
+  if (typeof decision === 'string') {
+    if (!isKnownStringDecision(decision)) {
+      throw new ApplyDecisionError({
+        kind: 'unknown-decision',
+        decision: String(decision),
+      });
+    }
+    if (index === -1) {
+      throw new ApplyDecisionError({ kind: 'unknown-id', findingId });
+    }
+    const current = doc.items[index];
+    const next = mutateForStringDecision(current, decision);
+    const nextItems = doc.items.slice();
+    nextItems[index] = next;
+    return { ...doc, items: nextItems };
   }
 
-  const index = doc.items.findIndex((it) => it.id === findingId);
+  if (decision.kind !== 'finalizeChat') {
+    throw new ApplyDecisionError({
+      kind: 'unknown-decision',
+      decision: String((decision as { kind?: unknown }).kind),
+    });
+  }
+
   if (index === -1) {
     throw new ApplyDecisionError({ kind: 'unknown-id', findingId });
   }
 
   const current = doc.items[index];
-  const next = mutateForDecision(current, decision);
-
+  const next = markCustom(current, decision.resolution);
   const nextItems = doc.items.slice();
   nextItems[index] = next;
-
   return { ...doc, items: nextItems };
 }

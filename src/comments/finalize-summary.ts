@@ -43,11 +43,8 @@ export function countByStatus(items: ReadonlyArray<FindingItem>): StatusCounts {
       case 'unresolved':
         counts.unresolved += 1;
         break;
-      default: {
-        const _exhaustive: never = status;
-        void _exhaustive;
-        throw new UnknownStatusError(String(status));
-      }
+      default:
+        assertNever(status);
     }
   }
   return counts;
@@ -79,6 +76,10 @@ export function renderSummary(input: { filePath: string; counts: StatusCounts })
   const line = renderLine({ total, unresolved: counts.unresolved, deferred: counts.deferred });
 
   return { line, block, cliCommand };
+}
+
+function assertNever(x: never): never {
+  throw new UnknownStatusError(String(x));
 }
 
 function renderLine(input: { total: number; unresolved: number; deferred: number }): string {

@@ -1145,6 +1145,90 @@ describe('parseDocument — id absent in input', () => {
   });
 });
 
+describe('parseDocument — Chat field', () => {
+  function makeChatDoc(chatBlock: string, prNumber = 30): string {
+    return `# PR Review Handover: #${prNumber}
+
+**PR:** https://github.com/example/repo/pull/${prNumber}
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)
+
+---
+
+## [d] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Id:** 11111111-2222-3333-4444-555555555555
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+${chatBlock}**Resolution:**
+
+---
+`;
+  }
+
+  it('parses empty Chat block — chat is absent', () => {
+    const doc = parseDocument(makeChatDoc('**Chat:**\n'));
+    expect(doc.items[0].chat).toBeUndefined();
+  });
+
+  it('parses a single user message', () => {
+    const doc = parseDocument(
+      makeChatDoc('**Chat:**\n- user: hello there\n'),
+    );
+    expect(doc.items[0].chat).toEqual([
+      { role: 'user', content: 'hello there' },
+    ]);
+  });
+
+  it('parses alternating user/assistant messages', () => {
+    const doc = parseDocument(
+      makeChatDoc(
+        '**Chat:**\n- user: ping\n- assistant: pong\n- user: again\n',
+      ),
+    );
+    expect(doc.items[0].chat).toEqual([
+      { role: 'user', content: 'ping' },
+      { role: 'assistant', content: 'pong' },
+      { role: 'user', content: 'again' },
+    ]);
+  });
+
+  it('parses multi-line content via two-space continuation', () => {
+    const doc = parseDocument(
+      makeChatDoc(
+        '**Chat:**\n- user: line one\n  line two\n  line three\n- assistant: ack\n',
+      ),
+    );
+    expect(doc.items[0].chat).toEqual([
+      { role: 'user', content: 'line one\nline two\nline three' },
+      { role: 'assistant', content: 'ack' },
+    ]);
+  });
+
+  it('throws ParseError with state IN_CHAT for an unknown role', () => {
+    const raw = makeChatDoc('**Chat:**\n- bogus: oops\n');
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_CHAT');
+        expect(e.message).toContain('chat role');
+        const badLineOffset = raw.indexOf('- bogus:');
+        expect(e.offset).toBe(badLineOffset);
+      }
+    }
+  });
+});
+
 describe('parseDocument — unknown field alongside Id', () => {
   const itemBody = `---
 

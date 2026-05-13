@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution } from './mutations';
-import type { FindingItem } from './types';
+import {
+  markResolved,
+  markCustom,
+  markDeferred,
+  markSkipped,
+  markUnresolved,
+  withResolution,
+  appendChat,
+  UnknownIdError,
+} from './mutations';
+import type { ChatMessage, FindingItem, HandoverDocument } from './types';
+import { DocumentHeaderSchema } from './types';
 
 const baseItem: FindingItem = {
   id: 'item-1',
@@ -158,6 +168,113 @@ describe('withResolution', () => {
     expect(result.analysis).toBe(baseItem.analysis);
     expect(result.recommendation).toBe(baseItem.recommendation);
     expect(result.options).toEqual(baseItem.options);
+  });
+});
+
+describe('chat preservation across mutations', () => {
+  const itemWithChat: FindingItem = {
+    ...baseItem,
+    chat: [
+      { role: 'user', content: 'why?' },
+      { role: 'assistant', content: 'because.' },
+    ],
+  };
+
+  it('markResolved preserves chat verbatim', () => {
+    const result = markResolved(itemWithChat, 'Done');
+    expect(result.chat).toEqual(itemWithChat.chat);
+  });
+
+  it('markCustom preserves chat verbatim', () => {
+    const result = markCustom(itemWithChat, 'Edited');
+    expect(result.chat).toEqual(itemWithChat.chat);
+  });
+
+  it('markDeferred preserves chat verbatim', () => {
+    const result = markDeferred(itemWithChat);
+    expect(result.chat).toEqual(itemWithChat.chat);
+  });
+
+  it('markSkipped preserves chat verbatim', () => {
+    const result = markSkipped(itemWithChat);
+    expect(result.chat).toEqual(itemWithChat.chat);
+  });
+
+  it('markUnresolved preserves chat verbatim', () => {
+    const result = markUnresolved(itemWithChat);
+    expect(result.chat).toEqual(itemWithChat.chat);
+  });
+
+  it('markCustom does not mutate the original chat array reference', () => {
+    const before = itemWithChat.chat;
+    markCustom(itemWithChat, 'Edited');
+    expect(itemWithChat.chat).toBe(before);
+  });
+});
+
+describe('appendChat', () => {
+  const header: HandoverDocument['header'] = DocumentHeaderSchema.parse({
+    prUrl: 'https://github.com/example/repo/pull/1',
+    prNumber: 1,
+    branch: { head: { ref: 'feat/x' }, base: { ref: 'main' } },
+    generatedAt: '2024-01-01T00:00:00Z',
+    status: 'PENDING REVIEW',
+  });
+
+  function makeDoc(items: FindingItem[]): HandoverDocument {
+    return { header, items };
+  }
+
+  it('creates an empty array, appends one message when chat is absent', () => {
+    const doc = makeDoc([baseItem]);
+    const msg: ChatMessage = { role: 'user', content: 'hi' };
+    const next = appendChat(doc, 'item-1', msg);
+    expect(next.items[0].chat).toEqual([msg]);
+  });
+
+  it('appends to an existing chat array', () => {
+    const doc = makeDoc([
+      { ...baseItem, chat: [{ role: 'user', content: 'first' }] },
+    ]);
+    const next = appendChat(doc, 'item-1', { role: 'assistant', content: 'reply' });
+    expect(next.items[0].chat).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+  });
+
+  it('sets dirty: true on the mutated item', () => {
+    const doc = makeDoc([baseItem]);
+    const next = appendChat(doc, 'item-1', { role: 'user', content: 'hi' });
+    expect(next.items[0].dirty).toBe(true);
+  });
+
+  it('returns a new doc reference, new items array, new item reference', () => {
+    const doc = makeDoc([baseItem]);
+    const next = appendChat(doc, 'item-1', { role: 'user', content: 'hi' });
+    expect(next).not.toBe(doc);
+    expect(next.items).not.toBe(doc.items);
+    expect(next.items[0]).not.toBe(doc.items[0]);
+  });
+
+  it('does not mutate the original doc or item', () => {
+    const doc = makeDoc([baseItem]);
+    appendChat(doc, 'item-1', { role: 'user', content: 'hi' });
+    expect(baseItem.chat).toBeUndefined();
+    expect(doc.items[0].chat).toBeUndefined();
+  });
+
+  it('throws UnknownIdError for a non-existent id', () => {
+    const doc = makeDoc([baseItem]);
+    try {
+      appendChat(doc, 'no-such-id', { role: 'user', content: 'hi' });
+      throw new Error('expected appendChat to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(UnknownIdError);
+      if (e instanceof UnknownIdError) {
+        expect(e.findingId).toBe('no-such-id');
+      }
+    }
   });
 });
 

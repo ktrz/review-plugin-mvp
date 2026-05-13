@@ -24,6 +24,12 @@ export const SourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type Source = z.infer<typeof SourceSchema>;
 
+export const ChatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1),
+}).strict();
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
 export const FindingItemBaseSchema = z.object({
   id: z.string().min(1),
   status: StatusMarkerSchema,
@@ -35,6 +41,7 @@ export const FindingItemBaseSchema = z.object({
   recommendation: z.string().min(1),
   options: z.array(z.string().min(1)),
   resolution: z.string(),
+  chat: z.array(ChatMessageSchema).optional(),
 });
 
 export const FindingItemSchema = z.discriminatedUnion('dirty', [

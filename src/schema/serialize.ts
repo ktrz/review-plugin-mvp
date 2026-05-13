@@ -1,4 +1,4 @@
-import type { HandoverDocument, FindingItem, StatusMarker } from './types';
+import type { ChatMessage, HandoverDocument, FindingItem, StatusMarker } from './types';
 
 const STATUS_TO_DISK: Record<StatusMarker, string> = {
   unresolved: '?',
@@ -58,6 +58,17 @@ function renderItemHeading(item: FindingItem): string {
   return `## [${markerChar}] ${sourceTag} — ${location}`;
 }
 
+function renderChatBlock(chat: ChatMessage[], lines: string[]): void {
+  lines.push('**Chat:**');
+  for (const msg of chat) {
+    const contentLines = msg.content.split('\n');
+    lines.push(`- ${msg.role}: ${contentLines[0]}`);
+    for (let i = 1; i < contentLines.length; i++) {
+      lines.push(`  ${contentLines[i]}`);
+    }
+  }
+}
+
 function renderItem(item: FindingItem): string {
   const lines: string[] = [];
   lines.push(renderItemHeading(item));
@@ -72,6 +83,9 @@ function renderItem(item: FindingItem): string {
   lines.push('**Options:**');
   for (const opt of item.options) {
     lines.push(`- ${opt}`);
+  }
+  if (item.chat !== undefined && item.chat.length > 0) {
+    renderChatBlock(item.chat, lines);
   }
   lines.push(`**Resolution:** ${item.resolution}`);
   return lines.join('\n');

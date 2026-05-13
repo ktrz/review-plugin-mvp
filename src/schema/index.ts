@@ -4,6 +4,7 @@ export {
   StatusMarkerSchema,
   LocationSchema,
   SourceSchema,
+  ChatMessageSchema,
   FindingItemSchema,
   BranchRefSchema,
   DocumentHeaderSchema,
@@ -15,6 +16,7 @@ export type {
   StatusMarker,
   Location,
   Source,
+  ChatMessage,
   BranchRef,
   FindingItem,
   DocumentHeader,
@@ -29,7 +31,7 @@ export type { ParserState } from './parse';
 export { serializeDocument } from './serialize';
 
 // Mutations
-export { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution } from './mutations';
+export { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution, appendChat, UnknownIdError } from './mutations';
 
 // Stamper
 export { stampMissingIds } from './stamp';

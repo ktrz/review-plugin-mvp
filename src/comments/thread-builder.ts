@@ -82,14 +82,14 @@ export function collapsibleStateForStatus(
   return vscode.CommentThreadCollapsibleState.Collapsed;
 }
 
-function formatSourceLabel(source: Source): string {
+export function formatSourceLabel(source: Source): string {
   if (source.kind === 'auto-review') {
     return 'auto-review';
   }
   return `@${source.login}`;
 }
 
-function composeBody(finding: FindingItem): vscode.MarkdownString {
+export function composeBody(finding: FindingItem): vscode.MarkdownString {
   const parts: string[] = [
     `**Comment:** ${finding.comment}`,
     `**Analysis:** ${finding.analysis}`,

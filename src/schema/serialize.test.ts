@@ -55,13 +55,13 @@ describe('serializeDocument — Id field rendering', () => {
     expect(commentIdx).toBeGreaterThan(idIdx);
   });
 
-  it('omits the Id line entirely when id is empty (parser-before-stamper case)', () => {
+  it('always emits the **Id:** line — id is non-empty by schema invariant (stamper runs before serializer)', () => {
     const doc: HandoverDocument = {
       header,
-      items: [dirtyItem({ id: '' })],
+      items: [dirtyItem({ id: 'uuid-123' })],
     };
     const out = serializeDocument(doc);
-    expect(out).not.toContain('**Id:**');
+    expect(out).toContain('**Id:** uuid-123');
   });
 });
 

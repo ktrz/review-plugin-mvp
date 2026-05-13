@@ -190,8 +190,9 @@ function handleDelete(args: { deps: LoadDeps; channel: vscode.OutputChannel }): 
 async function reloadFromWatcher(args: ReloadArgs): Promise<void> {
   const { deps, channel, filePath, prNumber } = args;
   const lastWriteSha = deps.writer.getLastWriteSha(filePath);
+  let diskSha: string | null = null;
   if (lastWriteSha !== undefined) {
-    const diskSha = await tryComputeDiskSha({ deps, channel, filePath });
+    diskSha = await tryComputeDiskSha({ deps, channel, filePath });
     if (diskSha !== null && diskSha === lastWriteSha) {
       channel.appendLine(
         `Self-write detected for ${filePath} — skipping reload.`,
@@ -211,7 +212,7 @@ async function reloadFromWatcher(args: ReloadArgs): Promise<void> {
     mtime: loaded.mtime,
     filePath,
     prNumber,
-    lastWriteSha,
+    lastWriteSha: diskSha ?? undefined,
   });
   renderAndLog({ deps, channel, filePath, doc: loaded.doc });
 }

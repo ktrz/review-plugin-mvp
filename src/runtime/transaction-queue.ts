@@ -6,13 +6,16 @@ export function runExclusive<T>(filePath: string, fn: () => Promise<T>): Promise
     () => fn(),
     () => fn(),
   );
-  chains.set(
-    filePath,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
   );
+  chains.set(filePath, settled);
+  settled.then(() => {
+    if (chains.get(filePath) === settled) {
+      chains.delete(filePath);
+    }
+  });
   return next;
 }
 

@@ -6,6 +6,7 @@ export type LoadedFindings = {
   mtime: number;
   filePath: string;
   prNumber: number;
+  lastWriteSha?: string;
 };
 
 let current: LoadedFindings | null = null;

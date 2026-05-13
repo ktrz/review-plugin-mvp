@@ -20,8 +20,56 @@
         "command": "reviewPlugin.loadFindings",
         "title": "Load review findings",
         "category": "Review Plugin"
+      },
+      {
+        "command": "reviewPlugin.thread.post",
+        "title": "Post",
+        "category": "Review",
+        "icon": "$(check)"
+      },
+      {
+        "command": "reviewPlugin.thread.dismiss",
+        "title": "Dismiss",
+        "category": "Review",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "reviewPlugin.thread.discuss",
+        "title": "Discuss",
+        "category": "Review",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "reviewPlugin.thread.unresolve",
+        "title": "Unresolve",
+        "category": "Review",
+        "icon": "$(refresh)"
       }
-    ]
+    ],
+    "menus": {
+      "comments/commentThread/title": [
+        {
+          "command": "reviewPlugin.thread.post",
+          "when": "commentThread =~ /review-finding-(unresolved|deferred)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "reviewPlugin.thread.dismiss",
+          "when": "commentThread =~ /review-finding-(unresolved|deferred)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "reviewPlugin.thread.discuss",
+          "when": "commentThread =~ /review-finding-(unresolved|deferred)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "reviewPlugin.thread.unresolve",
+          "when": "commentThread =~ /review-finding-(resolved|skipped|custom)/",
+          "group": "inline@1"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "node esbuild.js",

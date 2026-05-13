@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile as fsReadFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
 import { discoverPrNumber as defaultDiscoverPrNumber } from '../pr-discovery/gh-runner';
 import { resolveFindingsPath as defaultResolveFindingsPath } from '../loaders/path-resolver';
@@ -13,6 +15,12 @@ import {
   disposeAll as defaultDisposeActiveThreads,
   setActiveThreads as defaultSetActiveThreads,
 } from '../comments/render-session';
+import {
+  serializeDocument,
+  stampMissingIds,
+  type HandoverDocument,
+} from '../schema';
+import type { FindingsWriter } from '../runtime/findings-writer';
 
 export type LoadDeps = {
   workspaceRoot: string;
@@ -26,9 +34,13 @@ export type LoadDeps = {
   renderFindings: typeof defaultRenderFindings;
   setActiveThreads: typeof defaultSetActiveThreads;
   disposeActiveThreads: typeof defaultDisposeActiveThreads;
+  writer: FindingsWriter;
+  generateId: () => string;
+  readFile: (filePath: string) => Promise<string>;
+  sha256: (data: string) => string;
 };
 
-export type LoadExtras = Pick<LoadDeps, 'controller'>;
+export type LoadExtras = Pick<LoadDeps, 'controller' | 'writer'>;
 
 const PARSE_ERROR_TOAST = 'Failed to load findings — see Review Plugin output.';
 
@@ -70,8 +82,23 @@ export async function loadFindingsHandler(deps: LoadDeps): Promise<void> {
   });
   if (loaded === null) {return;}
 
-  setState({ doc: loaded.doc, mtime: loaded.mtime, filePath, prNumber });
-  renderAndLog({ deps, channel, filePath, doc: loaded.doc });
+  const stamped = await stampAndPersist({
+    deps,
+    channel,
+    filePath,
+    doc: loaded.doc,
+    mtime: loaded.mtime,
+  });
+  if (stamped === null) {return;}
+
+  setState({
+    doc: stamped.doc,
+    mtime: stamped.mtime,
+    filePath,
+    prNumber,
+    lastWriteSha: stamped.lastWriteSha,
+  });
+  renderAndLog({ deps, channel, filePath, doc: stamped.doc });
 
   disposeActiveWatcher();
   activeWatcher = deps.createFindingsWatcher({
@@ -79,6 +106,46 @@ export async function loadFindingsHandler(deps: LoadDeps): Promise<void> {
     onReload: () => reloadFromWatcher({ deps, channel, filePath, prNumber }),
     onDelete: () => handleDelete({ deps, channel }),
   });
+}
+
+interface StampAndPersistArgs {
+  deps: LoadDeps;
+  channel: vscode.OutputChannel;
+  filePath: string;
+  doc: Readonly<HandoverDocument>;
+  mtime: number;
+}
+
+interface StampAndPersistResult {
+  doc: Readonly<HandoverDocument>;
+  mtime: number;
+  lastWriteSha: string | undefined;
+}
+
+async function stampAndPersist(
+  args: StampAndPersistArgs,
+): Promise<StampAndPersistResult | null> {
+  const { deps, channel, filePath, doc, mtime } = args;
+  const stampedDoc = stampMissingIds(doc, { generateId: deps.generateId });
+  if (stampedDoc === doc) {
+    return { doc, mtime, lastWriteSha: undefined };
+  }
+  try {
+    const serialized = serializeDocument(stampedDoc);
+    const { mtime: newMtime, sha } = await deps.writer.write(filePath, serialized);
+    channel.appendLine(
+      `Stamped missing ids and wrote findings back to ${filePath}.`,
+    );
+    return { doc: stampedDoc, mtime: newMtime, lastWriteSha: sha };
+  } catch (err) {
+    channel.appendLine(`Failed to write stamped findings to ${filePath}:`);
+    channel.appendLine(formatError(err));
+    deps.showError(PARSE_ERROR_TOAST);
+    clearState();
+    deps.disposeActiveThreads();
+    disposeActiveWatcher();
+    return null;
+  }
 }
 
 interface RunLoaderArgs {
@@ -122,6 +189,16 @@ function handleDelete(args: { deps: LoadDeps; channel: vscode.OutputChannel }): 
 
 async function reloadFromWatcher(args: ReloadArgs): Promise<void> {
   const { deps, channel, filePath, prNumber } = args;
+  const lastWriteSha = deps.writer.getLastWriteSha(filePath);
+  if (lastWriteSha !== undefined) {
+    const diskSha = await tryComputeDiskSha({ deps, channel, filePath });
+    if (diskSha !== null && diskSha === lastWriteSha) {
+      channel.appendLine(
+        `Self-write detected for ${filePath} — skipping reload.`,
+      );
+      return;
+    }
+  }
   const loaded = await runLoaderWithErrorSurface({
     deps,
     channel,
@@ -129,8 +206,35 @@ async function reloadFromWatcher(args: ReloadArgs): Promise<void> {
     contextLabel: 'reload',
   });
   if (loaded === null) {return;}
-  setState({ doc: loaded.doc, mtime: loaded.mtime, filePath, prNumber });
+  setState({
+    doc: loaded.doc,
+    mtime: loaded.mtime,
+    filePath,
+    prNumber,
+    lastWriteSha,
+  });
   renderAndLog({ deps, channel, filePath, doc: loaded.doc });
+}
+
+interface TryComputeDiskShaArgs {
+  deps: LoadDeps;
+  channel: vscode.OutputChannel;
+  filePath: string;
+}
+
+async function tryComputeDiskSha(
+  args: TryComputeDiskShaArgs,
+): Promise<string | null> {
+  const { deps, channel, filePath } = args;
+  try {
+    const raw = await deps.readFile(filePath);
+    return deps.sha256(raw);
+  } catch (err) {
+    channel.appendLine(
+      `Self-write check failed for ${filePath} — falling through to reload: ${formatError(err)}`,
+    );
+    return null;
+  }
 }
 
 interface RenderAndLogArgs {
@@ -191,6 +295,10 @@ export function registerLoadFindingsCommand(
       renderFindings: defaultRenderFindings,
       setActiveThreads: defaultSetActiveThreads,
       disposeActiveThreads: defaultDisposeActiveThreads,
+      writer: extras.writer,
+      generateId: () => randomUUID(),
+      readFile: (p) => fsReadFile(p, 'utf8'),
+      sha256: defaultLoadShaSha256,
     };
     await loadFindingsHandler(deps);
   };
@@ -203,4 +311,8 @@ export function registerLoadFindingsCommand(
   context.subscriptions.push({
     dispose: () => disposeActiveWatcher(),
   });
+}
+
+function defaultLoadShaSha256(data: string): string {
+  return createHash('sha256').update(data, 'utf8').digest('hex').slice(0, 8);
 }

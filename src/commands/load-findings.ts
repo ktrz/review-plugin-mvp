@@ -8,6 +8,11 @@ import {
   getOutputChannel as defaultGetOutputChannel,
   setState,
 } from '../runtime/findings-state';
+import { renderFindings as defaultRenderFindings } from '../comments/renderer';
+import {
+  disposeAll as defaultDisposeActiveThreads,
+  setActiveThreads as defaultSetActiveThreads,
+} from '../comments/render-session';
 
 export type LoadDeps = {
   workspaceRoot: string;
@@ -17,7 +22,15 @@ export type LoadDeps = {
   createFindingsWatcher: typeof defaultCreateFindingsWatcher;
   getOutputChannel: () => vscode.OutputChannel;
   showError: (msg: string) => Thenable<string | undefined> | void;
+  controller: vscode.CommentController;
+  renderFindings: typeof defaultRenderFindings;
+  setActiveThreads: typeof defaultSetActiveThreads;
+  disposeActiveThreads: typeof defaultDisposeActiveThreads;
 };
+
+export interface LoadExtras {
+  controller: vscode.CommentController;
+}
 
 const PARSE_ERROR_TOAST = 'Failed to load findings — see Review Plugin output.';
 
@@ -60,13 +73,13 @@ export async function loadFindingsHandler(deps: LoadDeps): Promise<void> {
   if (loaded === null) {return;}
 
   setState({ doc: loaded.doc, mtime: loaded.mtime, filePath, prNumber });
-  logLoadedSummary(channel, loaded.doc.items.length, filePath, loaded.doc);
+  renderAndLog({ deps, channel, filePath, doc: loaded.doc });
 
   disposeActiveWatcher();
   activeWatcher = deps.createFindingsWatcher({
     filePath,
     onReload: () => reloadFromWatcher({ deps, channel, filePath, prNumber }),
-    onDelete: () => handleDelete(channel),
+    onDelete: () => handleDelete({ deps, channel }),
   });
 }
 
@@ -88,6 +101,7 @@ async function runLoaderWithErrorSurface(
     channel.appendLine(formatError(err));
     deps.showError(PARSE_ERROR_TOAST);
     clearState();
+    deps.disposeActiveThreads();
     disposeActiveWatcher();
     return null;
   }
@@ -100,8 +114,10 @@ interface ReloadArgs {
   prNumber: number;
 }
 
-function handleDelete(channel: vscode.OutputChannel): void {
+function handleDelete(args: { deps: LoadDeps; channel: vscode.OutputChannel }): void {
+  const { deps, channel } = args;
   clearState();
+  deps.disposeActiveThreads();
   disposeActiveWatcher();
   channel.appendLine('Findings file deleted — state cleared.');
 }
@@ -116,17 +132,31 @@ async function reloadFromWatcher(args: ReloadArgs): Promise<void> {
   });
   if (loaded === null) {return;}
   setState({ doc: loaded.doc, mtime: loaded.mtime, filePath, prNumber });
-  logLoadedSummary(channel, loaded.doc.items.length, filePath, loaded.doc);
+  renderAndLog({ deps, channel, filePath, doc: loaded.doc });
 }
 
-function logLoadedSummary(
-  channel: vscode.OutputChannel,
-  itemCount: number,
-  filePath: string,
-  doc: unknown,
-): void {
-  channel.appendLine(`Loaded ${itemCount} findings from ${filePath}.`);
-  channel.appendLine(JSON.stringify(doc, null, 2));
+interface RenderAndLogArgs {
+  deps: LoadDeps;
+  channel: vscode.OutputChannel;
+  filePath: string;
+  doc: Awaited<ReturnType<typeof defaultLoadFindingsFile>>['doc'];
+}
+
+function renderAndLog(args: RenderAndLogArgs): void {
+  const { deps, channel, filePath, doc } = args;
+  channel.appendLine(`Loaded ${doc.items.length} findings from ${filePath}.`);
+  const { fileThreads, skippedPrLevel } = deps.renderFindings({
+    doc,
+    controller: deps.controller,
+    workspaceRoot: deps.workspaceRoot,
+  });
+  deps.setActiveThreads(fileThreads);
+  channel.appendLine(`Rendered ${fileThreads.length} inline thread(s).`);
+  if (skippedPrLevel > 0) {
+    channel.appendLine(
+      `Skipped ${skippedPrLevel} PR-level finding(s) — inline rendering deferred to a later phase.`,
+    );
+  }
 }
 
 function formatError(err: unknown): string {
@@ -141,7 +171,10 @@ function formatError(err: unknown): string {
   return String(err);
 }
 
-export function registerLoadFindingsCommand(context: vscode.ExtensionContext): void {
+export function registerLoadFindingsCommand(
+  context: vscode.ExtensionContext,
+  extras: LoadExtras,
+): void {
   const handler = async (): Promise<void> => {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (folder === undefined) {
@@ -156,6 +189,10 @@ export function registerLoadFindingsCommand(context: vscode.ExtensionContext): v
       createFindingsWatcher: defaultCreateFindingsWatcher,
       getOutputChannel: defaultGetOutputChannel,
       showError: (msg) => vscode.window.showErrorMessage(msg),
+      controller: extras.controller,
+      renderFindings: defaultRenderFindings,
+      setActiveThreads: defaultSetActiveThreads,
+      disposeActiveThreads: defaultDisposeActiveThreads,
     };
     await loadFindingsHandler(deps);
   };

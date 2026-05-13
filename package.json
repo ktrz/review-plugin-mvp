@@ -44,9 +44,20 @@
         "title": "Unresolve",
         "category": "Review",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "reviewPlugin.session.finalize",
+        "title": "Finalize session",
+        "category": "Review"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "reviewPlugin.session.finalize",
+          "when": "reviewPlugin.hasFindings"
+        }
+      ],
       "comments/commentThread/title": [
         {
           "command": "reviewPlugin.thread.post",

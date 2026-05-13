@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import type { FindingItem, Severity, StatusMarker } from '../schema';
+import {
+  FindingItemSchema,
+  type FindingItem,
+  type Severity,
+  type StatusMarker,
+} from '../schema';
 import { buildThread } from './thread-builder';
 
 type FakeThread = {
@@ -67,21 +72,21 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
   const severity = opts.severity ?? 'critical';
   const source =
     sourceKind === 'auto-review'
-      ? { kind: 'auto-review' as const, severity }
-      : { kind: 'reviewer' as const, login: opts.login ?? 'alice', severity };
+      ? { kind: 'auto-review', severity }
+      : { kind: 'reviewer', login: opts.login ?? 'alice', severity };
   const location =
     (opts.locationKind ?? 'file') === 'file'
       ? {
-          kind: 'file' as const,
+          kind: 'file',
           file: opts.file ?? 'src/router.ts',
           line: opts.line ?? 42,
         }
-      : { kind: 'review-body' as const };
+      : { kind: 'review-body' };
   const status = opts.status ?? 'unresolved';
   const resolution =
     opts.resolution ??
     (status === 'resolved' || status === 'custom' ? 'fixed in follow-up' : '');
-  return {
+  return FindingItemSchema.parse({
     dirty: false,
     rawSource: 'raw',
     status,
@@ -93,7 +98,7 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
     recommendation: opts.recommendation ?? 'do the thing',
     options: opts.options ?? ['option one', 'option two'],
     resolution,
-  } as FindingItem;
+  });
 };
 
 describe('buildThread', () => {

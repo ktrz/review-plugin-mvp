@@ -26,6 +26,7 @@ const makeFinding = (opts: MakeFindingOpts): FindingItem => {
         }
       : { kind: 'review-body' as const };
   return {
+    id: `id-${opts.tag}`,
     dirty: false,
     rawSource: `raw-${opts.tag}`,
     status: 'unresolved',

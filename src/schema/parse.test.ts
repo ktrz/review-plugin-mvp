@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { parseDocument, ParseError } from './parse';
+import { serializeDocument } from './serialize';
 
 const fixtureDir = join(__dirname, '../../fixtures');
 
@@ -1064,6 +1065,121 @@ describe('parseDocument — empty comment value', () => {
       expect(e).toBeInstanceOf(ParseError);
       if (e instanceof ParseError) {
         expect(e.message).toContain('Schema validation failed');
+      }
+    }
+  });
+});
+
+describe('parseDocument — Id field on item', () => {
+  const itemBody = `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Id:** 11111111-2222-3333-4444-555555555555
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`;
+  const raw = makeDoc({
+    prNumber: 25,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: itemBody,
+  });
+
+  it('parses the Id into item.id', () => {
+    const doc = parseDocument(raw);
+    expect(doc.items[0].id).toBe('11111111-2222-3333-4444-555555555555');
+  });
+
+  it('round-trips the Id through serialize → parse', () => {
+    const doc = parseDocument(raw);
+    const item = doc.items[0];
+    if (item.dirty !== false) { throw new Error('expected clean parse result'); }
+    // Force a re-render by marking dirty via a status mutation surrogate: rebuild the item dirty.
+    const dirtyDoc = {
+      ...doc,
+      items: doc.items.map((it) => {
+        if (it.dirty !== false) { return it; }
+        return { ...it, dirty: true as const };
+      }),
+    };
+    const out = serializeDocument(dirtyDoc);
+    expect(out).toContain('**Id:** 11111111-2222-3333-4444-555555555555');
+    const reparsed = parseDocument(out);
+    expect(reparsed.items[0].id).toBe('11111111-2222-3333-4444-555555555555');
+  });
+});
+
+describe('parseDocument — id absent in input', () => {
+  const itemBody = `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`;
+  const raw = makeDoc({
+    prNumber: 26,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: itemBody,
+  });
+
+  it('parses successfully with id populated as empty string (stamper runs later)', () => {
+    const doc = parseDocument(raw);
+    expect(doc.items[0].id).toBe('');
+  });
+});
+
+describe('parseDocument — unknown field alongside Id', () => {
+  const itemBody = `---
+
+## [?] auto:critical — src/foo.ts:1
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Id:** 11111111-2222-3333-4444-555555555555
+**UnknownField:** value
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`;
+  const raw = makeDoc({
+    prNumber: 27,
+    sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+    body: itemBody,
+  });
+
+  it('throws ParseError pointing at the UnknownField line', () => {
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.state).toBe('IN_ITEM_FIELDS');
+        expect(e.message).toBe('Unknown field in item: **UnknownField:**');
+        const unknownLineOffset = raw.indexOf('**UnknownField:**');
+        expect(e.offset).toBe(unknownLineOffset);
       }
     }
   });

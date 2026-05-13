@@ -30,3 +30,7 @@ export { serializeDocument } from './serialize';
 
 // Mutations
 export { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, withResolution } from './mutations';
+
+// Stamper
+export { stampMissingIds } from './stamp';
+export type { StampDeps } from './stamp';

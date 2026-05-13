@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
-  HandoverDocumentSchema,
+  DocumentHeaderSchema,
+  FindingItemBaseSchema,
   SeveritySchema,
   type HandoverDocument,
   type FindingItem,
@@ -23,6 +24,7 @@ import {
 //   IN_RESOLUTION   → IN_ITEM_FIELDS (on ## [...])
 
 type ActiveItem = {
+  id: string;
   status: StatusMarker;
   source: Source;
   location: Location;
@@ -111,7 +113,7 @@ const KNOWN_HEADER_KEYS = new Set([
 
 // Known item field keys (allow-list); 'Note' is ignored but not an error
 const KNOWN_ITEM_FIELDS = new Set([
-  'Severity', 'Source', 'Reported by', 'Comment', 'Analysis',
+  'Severity', 'Source', 'Reported by', 'Id', 'Comment', 'Analysis',
   'Recommendation', 'Resolution', 'Note', 'Options',
 ]);
 
@@ -150,6 +152,7 @@ function finalizeItem(
   const rawSource = raw.slice(item.startOffset, endOffset).replace(/[\r\n]+$/, '');
 
   out.push({
+    id: item.id,
     status: item.status,
     source: item.source,
     location: item.location,
@@ -196,6 +199,9 @@ function applyField(
       break;
     case 'Reported by':
       item.reportedBy = value.split(',').map((s) => s.trim()).filter(Boolean);
+      break;
+    case 'Id':
+      item.id = value;
       break;
     case 'Comment':
       item.comment = value;
@@ -259,6 +265,7 @@ function parseItemHeading(
       : { kind: 'file', file: file!, line: parseInt(lineStr!, 10) };
 
   return {
+    id: '',
     status,
     source,
     location,
@@ -523,9 +530,38 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
     }
   }
 
+  // Parse-time schema: `id` may be empty here; loader stamps after parse
+  // before exposing the doc. Other invariants (severity, resolution-required,
+  // url, datetime, etc.) stay strict.
+  const ParseTimeFindingItemSchema = z.discriminatedUnion('dirty', [
+    FindingItemBaseSchema.extend({
+      id: z.string(),
+      dirty: z.literal(false),
+      rawSource: z.string().min(1),
+    }),
+    FindingItemBaseSchema.extend({
+      id: z.string(),
+      dirty: z.literal(true),
+      rawSource: z.string().optional(),
+    }),
+  ]).superRefine((data, ctx) => {
+    if (data.status === 'resolved' || data.status === 'custom') {
+      if (!data.resolution.length) {
+        ctx.addIssue({
+          path: ['resolution'],
+          code: z.ZodIssueCode.custom,
+          message: 'Resolution required when status is resolved or custom',
+        });
+      }
+    }
+  });
+  const ParseTimeDocSchema = z.object({
+    header: DocumentHeaderSchema,
+    items: z.array(ParseTimeFindingItemSchema),
+  });
   // Wrap ZodError → ParseError so callers see single error type
   try {
-    const document = HandoverDocumentSchema.parse({
+    const document = ParseTimeDocSchema.parse({
       header: {
         prUrl,
         prNumber,

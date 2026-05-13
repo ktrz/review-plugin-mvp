@@ -24,7 +24,8 @@ export const SourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type Source = z.infer<typeof SourceSchema>;
 
-const FindingItemBaseSchema = z.object({
+export const FindingItemBaseSchema = z.object({
+  id: z.string().min(1),
   status: StatusMarkerSchema,
   source: SourceSchema,
   location: LocationSchema,

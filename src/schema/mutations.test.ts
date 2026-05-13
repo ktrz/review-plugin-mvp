@@ -3,6 +3,7 @@ import { markResolved, markCustom, markDeferred, markSkipped, markUnresolved, wi
 import type { FindingItem } from './types';
 
 const baseItem: FindingItem = {
+  id: 'item-1',
   status: 'unresolved',
   source: { kind: 'auto-review', severity: 'critical' },
   location: { kind: 'file', file: 'src/foo.ts', line: 10 },

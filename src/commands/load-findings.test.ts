@@ -22,6 +22,7 @@ function setWorkspaceFolders(
 }
 
 const makeFindingItemInput = (commentTag: string) => ({
+  id: `id-${commentTag}`,
   status: 'unresolved',
   source: { kind: 'auto-review', severity: 'important' },
   location: { kind: 'file', file: 'src/x.ts', line: 1 },

@@ -20,6 +20,7 @@ const makeThread = (label = 'thread'): vscode.CommentThread => {
   const fake: Partial<vscode.CommentThread> = {
     label,
     contextValue: '',
+    canReply: false,
     collapsibleState: vscode.CommentThreadCollapsibleState.Collapsed,
     state: vscode.CommentThreadState.Unresolved,
     comments: [],
@@ -227,7 +228,7 @@ describe('render-session', () => {
   });
 
   describe('refreshThread', () => {
-    it('updates label, contextValue, state, collapsibleState in place AND updates registry entry item', () => {
+    it('updates label, contextValue, state, collapsibleState, canReply in place AND updates registry entry item', () => {
       const e = makeEntry('id-r', { status: 'unresolved' });
       setActiveEntries([e]);
 
@@ -240,8 +241,21 @@ describe('render-session', () => {
       expect(e.thread.contextValue).toBe('review-finding-resolved');
       expect(e.thread.state).toBe(vscode.CommentThreadState.Resolved);
       expect(e.thread.collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
+      expect(e.thread.canReply).toBe(false);
       expect(e.thread.label).toBe('[resolved] critical · auto-review');
       expect(findThreadById('id-r')?.item).toBe(updatedItem);
+    });
+
+    it('sets canReply true when status transitions to deferred (so chat reply is enabled)', () => {
+      const e = makeEntry('id-d', { status: 'unresolved' });
+      setActiveEntries([e]);
+      expect(e.thread.canReply).toBe(false);
+
+      const updatedItem = makeItem('id-d', { status: 'deferred' });
+      refreshThread(e.thread, updatedItem);
+
+      expect(e.thread.canReply).toBe(true);
+      expect(e.thread.contextValue).toBe('review-finding-deferred');
     });
 
     it('logs a warning when invoked on an unregistered thread (no throw, no registry mutation)', () => {

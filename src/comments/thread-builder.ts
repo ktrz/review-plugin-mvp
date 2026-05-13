@@ -42,10 +42,14 @@ function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
   const thread = controller.createCommentThread(uri, range, [comment]);
   thread.label = `[${finding.status}] ${finding.source.severity} · ${sourceLabel}`;
   thread.contextValue = contextValueForStatus(finding.status);
-  thread.canReply = false;
+  thread.canReply = canReplyForStatus(finding.status);
   thread.collapsibleState = collapsibleStateForStatus(finding.status);
   thread.state = threadStateForStatus(finding.status);
   return thread;
+}
+
+export function canReplyForStatus(status: StatusMarker): boolean {
+  return status === 'deferred';
 }
 
 export function buildThreadEntry(deps: BuildThreadEntryDeps): ThreadEntry | null {

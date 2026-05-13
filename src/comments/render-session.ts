@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getOutputChannel } from '../runtime/findings-state';
 import {
+  canReplyForStatus,
   collapsibleStateForStatus,
   composeBody,
   contextValueForStatus,
@@ -50,6 +51,7 @@ export function refreshThread(
   thread.contextValue = computeContextValue(newItem);
   thread.state = threadStateForStatus(newItem.status);
   thread.collapsibleState = collapsibleStateForStatus(newItem.status);
+  thread.canReply = canReplyForStatus(newItem.status);
   thread.comments = [composeRefreshedComment(newItem, thread.comments[0])];
   idToEntry.set(id, { thread, item: newItem });
 }

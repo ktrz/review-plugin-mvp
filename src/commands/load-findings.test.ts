@@ -6,9 +6,11 @@ import {
   loadFindingsHandler,
   registerLoadFindingsCommand,
   type LoadDeps,
+  type LoadExtras,
 } from './load-findings';
 import { clearState, getState, setOutputChannel } from '../runtime/findings-state';
 import { HandoverDocumentSchema, ParseError, type HandoverDocument } from '../schema';
+import type { RenderFindingsDeps, RenderFindingsResult } from '../comments/renderer';
 
 const WORKSPACE = '/tmp/repo';
 
@@ -66,6 +68,26 @@ type WatcherCallbacks = {
   onDelete: () => unknown;
 };
 
+const makeFakeController = (): vscode.CommentController => {
+  const fake: Partial<vscode.CommentController> = {
+    id: 'reviewPlugin.findings',
+    label: 'Review Plugin',
+    createCommentThread: vi.fn(),
+    dispose: vi.fn(),
+  };
+  return fake as vscode.CommentController;
+};
+
+const makeFakeThread = (label = 'fake'): vscode.CommentThread => {
+  const fake: Partial<vscode.CommentThread> = {
+    label,
+    contextValue: 'review-finding',
+    canReply: false,
+    dispose: vi.fn(),
+  };
+  return fake as vscode.CommentThread;
+};
+
 function makeDeps(overrides: Partial<LoadDeps> = {}) {
   const watcherDispose = vi.fn();
   const watcherCallbacks: WatcherCallbacks = {
@@ -83,6 +105,17 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     },
   );
 
+  const controller = makeFakeController();
+  const renderResult: RenderFindingsResult = {
+    fileThreads: [makeFakeThread('t1'), makeFakeThread('t2')],
+    skippedPrLevel: 0,
+  };
+  const renderFindings = vi.fn(
+    (_d: RenderFindingsDeps): RenderFindingsResult => renderResult,
+  );
+  const setActiveThreads = vi.fn();
+  const disposeActiveThreads = vi.fn();
+
   const deps: LoadDeps = {
     workspaceRoot: WORKSPACE,
     discoverPrNumber: vi.fn(async () => 42),
@@ -91,10 +124,26 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     createFindingsWatcher: createFindingsWatcher as LoadDeps['createFindingsWatcher'],
     getOutputChannel: () => channel,
     showError,
+    controller,
+    renderFindings: renderFindings as LoadDeps['renderFindings'],
+    setActiveThreads,
+    disposeActiveThreads,
     ...overrides,
   };
 
-  return { deps, watcherDispose, watcherCallbacks, showError, channel, loadFindingsFile };
+  return {
+    deps,
+    watcherDispose,
+    watcherCallbacks,
+    showError,
+    channel,
+    loadFindingsFile,
+    controller,
+    renderFindings,
+    setActiveThreads,
+    disposeActiveThreads,
+    renderResult,
+  };
 }
 
 describe('loadFindingsHandler', () => {
@@ -110,8 +159,16 @@ describe('loadFindingsHandler', () => {
     __resetActiveWatcherForTests();
   });
 
-  it('runs the full happy path: discover → resolve → load → setState → watcher', async () => {
-    const { deps, channel, watcherDispose: _wd } = makeDeps();
+  it('runs the full happy path: discover → resolve → load → setState → render → watcher', async () => {
+    const {
+      deps,
+      channel,
+      watcherDispose: _wd,
+      renderFindings,
+      setActiveThreads,
+      renderResult,
+      controller,
+    } = makeDeps();
     void _wd;
 
     await loadFindingsHandler(deps);
@@ -130,12 +187,48 @@ describe('loadFindingsHandler', () => {
     expect(state?.filePath).toBe('/tmp/repo/pr-42-auto-review.md');
     expect(state?.mtime).toBe(999);
 
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+    const renderArgs = renderFindings.mock.calls[0]?.[0];
+    expect(renderArgs?.controller).toBe(controller);
+    expect(renderArgs?.workspaceRoot).toBe(WORKSPACE);
+    expect(renderArgs?.doc).toBe(state?.doc);
+    expect(setActiveThreads).toHaveBeenCalledTimes(1);
+    expect(setActiveThreads).toHaveBeenCalledWith(renderResult.fileThreads);
+
     expect(channel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),
     );
+    expect(channel.appendLine).toHaveBeenCalledWith('Rendered 2 inline thread(s).');
+    const calls = (channel.appendLine as ReturnType<typeof vi.fn>).mock.calls;
+    const dumped = calls.some((c) => typeof c[0] === 'string' && c[0].includes('"comment": "comment-one"'));
+    expect(dumped).toBe(false);
+  });
+
+  it('logs the skipped-PR-level summary when renderFindings reports skipped findings', async () => {
+    const { deps, channel, renderFindings } = makeDeps();
+    renderFindings.mockReturnValueOnce({
+      fileThreads: [makeFakeThread('only')],
+      skippedPrLevel: 3,
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(channel.appendLine).toHaveBeenCalledWith('Rendered 1 inline thread(s).');
     expect(channel.appendLine).toHaveBeenCalledWith(
-      expect.stringContaining('"comment": "comment-one"'),
+      'Skipped 3 PR-level finding(s) — inline rendering deferred to a later phase.',
     );
+  });
+
+  it('does not log a skipped-PR-level line when skippedPrLevel === 0', async () => {
+    const { deps, channel } = makeDeps();
+
+    await loadFindingsHandler(deps);
+
+    const calls = (channel.appendLine as ReturnType<typeof vi.fn>).mock.calls;
+    const skippedLogged = calls.some(
+      (c) => typeof c[0] === 'string' && c[0].includes('PR-level finding(s)'),
+    );
+    expect(skippedLogged).toBe(false);
   });
 
   it('aborts when discoverPrNumber returns null and logs to channel', async () => {
@@ -171,9 +264,9 @@ describe('loadFindingsHandler', () => {
     expect(getState()).toBeNull();
   });
 
-  it('on loader ParseError: logs full error, shows toast, clears state, disposes watcher', async () => {
+  it('on loader ParseError: logs full error, shows toast, clears state, disposes watcher and threads', async () => {
     const parseError = new ParseError('broken header', 0, 'IN_HEADER', 12);
-    const { deps, channel, showError } = makeDeps({
+    const { deps, channel, showError, disposeActiveThreads, renderFindings } = makeDeps({
       loadFindingsFile: vi.fn(async () => {
         throw parseError;
       }) as LoadDeps['loadFindingsFile'],
@@ -190,6 +283,8 @@ describe('loadFindingsHandler', () => {
     );
     expect(getState()).toBeNull();
     expect(deps.createFindingsWatcher).not.toHaveBeenCalled();
+    expect(renderFindings).not.toHaveBeenCalled();
+    expect(disposeActiveThreads).toHaveBeenCalled();
   });
 
   it('disposes the previous watcher when invoked twice', async () => {
@@ -246,7 +341,7 @@ describe('loadFindingsHandler', () => {
       .mockResolvedValueOnce({ doc: docA, mtime: 100 })
       .mockResolvedValueOnce({ doc: docB, mtime: 200 });
 
-    const { deps, watcherCallbacks, channel } = makeDeps({
+    const { deps, watcherCallbacks, channel, renderFindings, setActiveThreads } = makeDeps({
       loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
@@ -255,6 +350,8 @@ describe('loadFindingsHandler', () => {
     expect(getState()?.doc).toBe(docA);
     const channelAppend = channel.appendLine as ReturnType<typeof vi.fn>;
     channelAppend.mockClear();
+    renderFindings.mockClear();
+    setActiveThreads.mockClear();
     (deps.discoverPrNumber as ReturnType<typeof vi.fn>).mockClear();
     (deps.resolveFindingsPath as ReturnType<typeof vi.fn>).mockClear();
 
@@ -265,24 +362,28 @@ describe('loadFindingsHandler', () => {
     expect(loadFindingsFile).toHaveBeenCalledTimes(2);
     expect(getState()?.mtime).toBe(200);
     expect(getState()?.doc).toBe(docB);
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+    expect(renderFindings.mock.calls[0]?.[0].doc).toBe(docB);
+    expect(setActiveThreads).toHaveBeenCalledTimes(1);
     expect(channelAppend).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),
     );
   });
 
-  it('watcher onReload surfaces loader errors via toast + channel and clears state', async () => {
+  it('watcher onReload surfaces loader errors via toast + channel and clears state and threads', async () => {
     const loadFindingsFile = vi
       .fn()
       .mockResolvedValueOnce({ doc: makeDoc(), mtime: 1 })
       .mockRejectedValueOnce(new ParseError('bad header', 0, 'IN_HEADER', 1));
 
-    const { deps, watcherCallbacks, channel, showError } = makeDeps({
+    const { deps, watcherCallbacks, channel, showError, disposeActiveThreads } = makeDeps({
       loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
     await loadFindingsHandler(deps);
     expect(getState()).not.toBeNull();
     showError.mockClear();
+    disposeActiveThreads.mockClear();
     (channel.appendLine as ReturnType<typeof vi.fn>).mockClear();
 
     await watcherCallbacks.onReload();
@@ -292,18 +393,21 @@ describe('loadFindingsHandler', () => {
     );
     expect(channel.appendLine).toHaveBeenCalledWith(expect.stringContaining('IN_HEADER'));
     expect(getState()).toBeNull();
+    expect(disposeActiveThreads).toHaveBeenCalled();
   });
 
-  it('watcher onDelete clears state, disposes watcher, logs to channel', async () => {
-    const { deps, watcherCallbacks, watcherDispose, channel } = makeDeps();
+  it('watcher onDelete clears state, disposes watcher, disposes threads, logs to channel', async () => {
+    const { deps, watcherCallbacks, watcherDispose, channel, disposeActiveThreads } = makeDeps();
 
     await loadFindingsHandler(deps);
     expect(getState()).not.toBeNull();
+    disposeActiveThreads.mockClear();
 
     watcherCallbacks.onDelete();
 
     expect(getState()).toBeNull();
     expect(watcherDispose).toHaveBeenCalledTimes(1);
+    expect(disposeActiveThreads).toHaveBeenCalledTimes(1);
     expect(channel.appendLine).toHaveBeenCalledWith(
       'Findings file deleted — state cleared.',
     );
@@ -331,7 +435,8 @@ describe('registerLoadFindingsCommand', () => {
     });
     setWorkspaceFolders([{ uri: { fsPath: WORKSPACE }, name: 'repo', index: 0 }]);
 
-    registerLoadFindingsCommand(context);
+    const extras: LoadExtras = { controller: makeFakeController() };
+    registerLoadFindingsCommand(context, extras);
 
     expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
       'reviewPlugin.loadFindings',
@@ -352,7 +457,8 @@ describe('registerLoadFindingsCommand', () => {
     );
     setWorkspaceFolders(undefined);
 
-    registerLoadFindingsCommand(context);
+    const extras: LoadExtras = { controller: makeFakeController() };
+    registerLoadFindingsCommand(context, extras);
     expect(captured).not.toBeNull();
     await captured!();
 

@@ -160,6 +160,13 @@ export const comments = makeNamespace([
   'createCommentController',
 ] as const);
 
+export const env = {
+  clipboard: {
+    writeText: vi.fn(),
+    readText: vi.fn(),
+  },
+};
+
 export function __resetShimNamespaces(): void {
   for (const ns of [workspace, window, commands, comments]) {
     for (const key of Object.keys(ns)) {

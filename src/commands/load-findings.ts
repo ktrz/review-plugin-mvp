@@ -98,6 +98,7 @@ export async function loadFindingsHandler(deps: LoadDeps): Promise<void> {
     prNumber,
     lastWriteSha: stamped.lastWriteSha,
   });
+  setHasFindingsContext(true);
   renderAndLog({ deps, channel, filePath, doc: stamped.doc });
 
   disposeActiveWatcher();
@@ -142,6 +143,7 @@ async function stampAndPersist(
     channel.appendLine(formatError(err));
     deps.showError(PARSE_ERROR_TOAST);
     clearState();
+    setHasFindingsContext(false);
     deps.disposeActiveThreads();
     disposeActiveWatcher();
     return null;
@@ -166,6 +168,7 @@ async function runLoaderWithErrorSurface(
     channel.appendLine(formatError(err));
     deps.showError(PARSE_ERROR_TOAST);
     clearState();
+    setHasFindingsContext(false);
     deps.disposeActiveThreads();
     disposeActiveWatcher();
     return null;
@@ -182,6 +185,7 @@ interface ReloadArgs {
 function handleDelete(args: { deps: LoadDeps; channel: vscode.OutputChannel }): void {
   const { deps, channel } = args;
   clearState();
+  setHasFindingsContext(false);
   deps.disposeActiveThreads();
   disposeActiveWatcher();
   channel.appendLine('Findings file deleted — state cleared.');
@@ -316,4 +320,8 @@ export function registerLoadFindingsCommand(
 
 function defaultLoadShaSha256(data: string): string {
   return createHash('sha256').update(data, 'utf8').digest('hex').slice(0, 8);
+}
+
+function setHasFindingsContext(value: boolean): void {
+  vscode.commands.executeCommand('setContext', 'reviewPlugin.hasFindings', value);
 }

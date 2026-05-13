@@ -5,6 +5,7 @@ import {
   __resetActiveWatcherForTests,
 } from './commands/load-findings';
 import { THREAD_COMMAND_IDS } from './commands/thread-actions';
+import { FINALIZE_SESSION_COMMAND_ID } from './commands/finalize-session';
 import { clearState, __resetOutputChannelForTests } from './runtime/findings-state';
 
 const makeChannel = (): vscode.OutputChannel => {
@@ -53,7 +54,7 @@ describe('activate', () => {
     clearState();
   });
 
-  it('registers loadFindings + all four thread commands', () => {
+  it('registers loadFindings, finalize, and all four thread commands', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
@@ -68,5 +69,23 @@ describe('activate', () => {
     expect(registerCalls).toContain(THREAD_COMMAND_IDS.dismiss);
     expect(registerCalls).toContain(THREAD_COMMAND_IDS.discuss);
     expect(registerCalls).toContain(THREAD_COMMAND_IDS.unresolve);
+    expect(registerCalls).toContain(FINALIZE_SESSION_COMMAND_ID);
+  });
+
+  it('seeds reviewPlugin.hasFindings = false on activation', () => {
+    const subscriptions: vscode.Disposable[] = [];
+    const context = {
+      subscriptions,
+    } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
+
+    activate(context);
+
+    const executeCalls = (vscode.commands.executeCommand as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    const setContextCall = executeCalls.find(
+      (c) => c[0] === 'setContext' && c[1] === 'reviewPlugin.hasFindings',
+    );
+    expect(setContextCall).toBeDefined();
+    expect(setContextCall?.[2]).toBe(false);
   });
 });

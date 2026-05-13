@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyDecision, ApplyDecisionError, type ThreadDecision } from './apply-decision';
-import type { FindingItem, HandoverDocument } from '../schema';
+import type { ChatMessage, FindingItem, HandoverDocument } from '../schema';
 
 const baseItem = {
   id: 'item-1',
@@ -69,6 +69,28 @@ describe('applyDecision', () => {
       const updated = result.items[0];
       expect(updated.status).toBe('unresolved');
       expect(updated.dirty).toBe(true);
+    });
+
+    it('finalizeChat → custom with payload resolution + chat preserved', () => {
+      const chat: ChatMessage[] = [
+        { role: 'user', content: 'why' },
+        { role: 'assistant', content: 'because reasons' },
+      ];
+      const deferred = {
+        ...baseItem,
+        status: 'deferred',
+        chat,
+      } satisfies Partial<FindingItem> as FindingItem;
+      const doc = makeDoc([deferred]);
+      const result = applyDecision(doc, 'item-1', {
+        kind: 'finalizeChat',
+        resolution: 'edited resolution',
+      });
+      const updated = result.items[0];
+      expect(updated.status).toBe('custom');
+      expect(updated.resolution).toBe('edited resolution');
+      expect(updated.dirty).toBe(true);
+      expect(updated.chat).toEqual(chat);
     });
   });
 

@@ -36,6 +36,7 @@ import {
 } from './llm/claude-runner';
 import { createHunkLoader } from './llm/hunk-loader';
 import { buildPrompt } from './llm/prompt-builder';
+import { resolveHunkPath } from './llm/resolve-hunk-path';
 import { createChatSessionStore } from './runtime/chat-session';
 import { renderChat } from './comments/chat-renderer';
 import {
@@ -81,7 +82,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   registerChatCommands(context, { writer, log });
 
-  wireCommentingRangeProvider(controller);
   controller.options = {
     prompt: REPLY_PROMPT,
     placeHolder: REPLY_PLACEHOLDER,
@@ -100,6 +100,11 @@ export function deactivate(): void {
   disposeActiveWatcher();
 }
 
+function getWorkspaceRoot(): string {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  return folder?.uri.fsPath ?? process.cwd();
+}
+
 interface RegisterChatDeps {
   writer: ReturnType<typeof createFindingsWriter>;
   log: ThreadActionLog;
@@ -111,7 +116,8 @@ function registerChatCommands(
 ): void {
   const sessions = createChatSessionStore();
   const hunkLoader = createHunkLoader({
-    readFile: (filePath) => fsReadFile(filePath, 'utf8'),
+    readFile: (filePath) =>
+      fsReadFile(resolveHunkPath(filePath, getWorkspaceRoot()), 'utf8'),
   });
   const runner = buildClaudeRunner();
 
@@ -158,9 +164,12 @@ function registerChatCommands(
       const args = normalizeChatReplyArgs(reply);
       if (args === null) {
         deps.log.warn('Chat send invoked with no thread/text — ignored.');
-        return Promise.resolve();
+        return;
       }
-      return chatReplyHandler(args);
+      void chatReplyHandler(args).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        deps.log.error(`Chat reply handler crashed: ${message}`);
+      });
     },
   );
   context.subscriptions.push(sendDisposable);
@@ -208,10 +217,7 @@ function buildClaudeRunner(): ClaudeRunner {
       const cfg = vscode.workspace.getConfiguration('reviewPlugin.claude');
       return cfg.get<readonly string[]>('extraArgs') ?? [];
     },
-    getWorkspaceRoot: () => {
-      const folder = vscode.workspace.workspaceFolders?.[0];
-      return folder?.uri.fsPath ?? process.cwd();
-    },
+    getWorkspaceRoot,
   });
 }
 
@@ -241,22 +247,6 @@ function asStream(stream: NodeJS.ReadableStream): ClaudeChildStream {
     on(event: 'data', listener: (chunk: Buffer | string) => void): unknown {
       stream.on(event, listener);
       return stream;
-    },
-  };
-}
-
-function wireCommentingRangeProvider(
-  controller: vscode.CommentController,
-): void {
-  controller.commentingRangeProvider = {
-    provideCommentingRanges(
-      document: vscode.TextDocument,
-    ): vscode.Range[] | undefined {
-      const lineCount = document.lineCount;
-      if (lineCount <= 0) {
-        return undefined;
-      }
-      return [new vscode.Range(0, 0, Math.max(0, lineCount - 1), 0)];
     },
   };
 }

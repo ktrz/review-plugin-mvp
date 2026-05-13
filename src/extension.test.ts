@@ -113,7 +113,42 @@ describe('activate', () => {
     expect(registerCalls).toContain(FINALIZE_CHAT_COMMAND_ID);
   });
 
-  it('wires controller.commentingRangeProvider and reply prompt options', () => {
+  it('chat.send handler returns synchronously (fire-and-forget) so VS Code clears the reply input', () => {
+    const subscriptions: vscode.Disposable[] = [];
+    const context = {
+      subscriptions,
+    } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
+    activate(context);
+
+    const calls = (vscode.commands.registerCommand as ReturnType<typeof vi.fn>).mock.calls;
+    const sendCall = calls.find((c) => c[0] === CHAT_SEND_COMMAND_ID);
+    expect(sendCall).toBeDefined();
+    const handler = sendCall?.[1] as (reply: unknown) => unknown;
+
+    const fakeThread = {
+      comments: [],
+      label: '',
+      contextValue: '',
+      canReply: true,
+    } as Partial<vscode.CommentThread> as vscode.CommentThread;
+    const result = handler({ thread: fakeThread, text: 'hello' });
+    expect(result).toBeUndefined();
+  });
+
+  it('chat.send handler returns undefined when invoked with no thread/text (no Promise to await)', () => {
+    const subscriptions: vscode.Disposable[] = [];
+    const context = {
+      subscriptions,
+    } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
+    activate(context);
+
+    const calls = (vscode.commands.registerCommand as ReturnType<typeof vi.fn>).mock.calls;
+    const sendCall = calls.find((c) => c[0] === CHAT_SEND_COMMAND_ID);
+    const handler = sendCall?.[1] as (reply: unknown) => unknown;
+    expect(handler(undefined)).toBeUndefined();
+  });
+
+  it('leaves commentingRangeProvider unset (no new-thread UI) and wires reply prompt options', () => {
     const controller = makeController();
     (vscode.comments.createCommentController as ReturnType<typeof vi.fn>).mockReturnValue(
       controller,
@@ -126,8 +161,7 @@ describe('activate', () => {
     activate(context);
 
     const provider = controller.__getProvider?.();
-    expect(provider).toBeDefined();
-    expect(typeof provider?.provideCommentingRanges).toBe('function');
+    expect(provider).toBeUndefined();
 
     const options = controller.__getOptions?.();
     expect(options).toBeDefined();

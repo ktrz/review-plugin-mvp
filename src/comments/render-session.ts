@@ -9,6 +9,7 @@ import {
   threadStateForStatus,
   type ThreadEntry,
 } from './thread-builder';
+import { renderChat } from './chat-renderer';
 import type { FindingItem } from '../schema';
 
 interface RegistryEntry {
@@ -53,6 +54,9 @@ export function refreshThread(
   thread.collapsibleState = collapsibleStateForStatus(newItem.status);
   thread.canReply = canReplyForStatus(newItem.status);
   thread.comments = [composeRefreshedComment(newItem, thread.comments[0])];
+  if ((newItem.chat?.length ?? 0) > 0) {
+    renderChat(thread, newItem, { getAuthorLabel: () => undefined });
+  }
   idToEntry.set(id, { thread, item: newItem });
 }
 

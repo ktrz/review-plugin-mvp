@@ -69,6 +69,7 @@ interface MakeFindingOptions {
   comment?: string;
   analysis?: string;
   recommendation?: string;
+  chat?: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
@@ -90,7 +91,7 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
   const resolution =
     opts.resolution ??
     (status === 'resolved' || status === 'custom' ? 'fixed in follow-up' : '');
-  return FindingItemSchema.parse({
+  const base = {
     id: 'test-id',
     dirty: false,
     rawSource: 'raw',
@@ -103,7 +104,9 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
     recommendation: opts.recommendation ?? 'do the thing',
     options: opts.options ?? ['option one', 'option two'],
     resolution,
-  });
+  };
+  const payload = opts.chat === undefined ? base : { ...base, chat: opts.chat };
+  return FindingItemSchema.parse(payload);
 };
 
 const withId = (item: FindingItem, id = 'id-test'): FindingItem =>
@@ -345,6 +348,41 @@ describe('buildThreadEntry', () => {
         workspaceRoot: '/repo',
       });
       expect(lastThread().comments[0].author.name).toBe('@bob');
+    });
+  });
+
+  describe('chat seeding', () => {
+    it('appends persisted chat messages after the finding comment on initial build', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({
+          status: 'deferred',
+          chat: [
+            { role: 'user', content: 'hello?' },
+            { role: 'assistant', content: 'hi back' },
+          ],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const comments = lastThread().comments;
+      expect(comments).toHaveLength(3);
+      expect(comments[0].contextValue).toBe('review-finding-comment');
+      expect(comments[1].contextValue).toBe('review-chat-user');
+      expect((comments[1].body as vscode.MarkdownString).value).toBe('hello?');
+      expect(comments[2].contextValue).toBe('review-chat-assistant');
+      expect((comments[2].body as vscode.MarkdownString).value).toBe('hi back');
+      expect(comments[2].author.name).toBe('Review Agent');
+    });
+
+    it('leaves a single finding comment when finding has no chat', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ status: 'deferred' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments).toHaveLength(1);
     });
   });
 

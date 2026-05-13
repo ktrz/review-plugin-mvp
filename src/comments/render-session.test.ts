@@ -258,6 +258,24 @@ describe('render-session', () => {
       expect(e.thread.contextValue).toBe('review-finding-deferred');
     });
 
+    it('paints persisted chat messages after the finding comment', () => {
+      const e = makeEntry('id-c', { status: 'deferred' });
+      setActiveEntries([e]);
+
+      const updatedItem = makeItem('id-c', {
+        status: 'deferred',
+        chat: [
+          { role: 'user', content: 'q?' },
+          { role: 'assistant', content: 'a.' },
+        ],
+      });
+      refreshThread(e.thread, updatedItem);
+
+      expect(e.thread.comments).toHaveLength(3);
+      expect(e.thread.comments[1].contextValue).toBe('review-chat-user');
+      expect(e.thread.comments[2].contextValue).toBe('review-chat-assistant');
+    });
+
     it('logs a warning when invoked on an unregistered thread (no throw, no registry mutation)', () => {
       const channel: Partial<vscode.OutputChannel> = {
         name: 'Review Plugin',

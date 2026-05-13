@@ -1,6 +1,7 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { FindingItem, Source, StatusMarker } from '../schema';
+import { renderChat } from './chat-renderer';
 
 interface BuildThreadDeps {
   finding: FindingItem;
@@ -45,6 +46,9 @@ function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
   thread.canReply = canReplyForStatus(finding.status);
   thread.collapsibleState = collapsibleStateForStatus(finding.status);
   thread.state = threadStateForStatus(finding.status);
+  if ((finding.chat?.length ?? 0) > 0) {
+    renderChat(thread, finding, { getAuthorLabel: () => undefined });
+  }
   return thread;
 }
 

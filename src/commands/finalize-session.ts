@@ -5,7 +5,6 @@ import {
   countByStatus,
   renderSummary,
   type RenderedSummary,
-  type StatusCounts,
 } from '../comments/finalize-summary';
 import {
   getOutputChannel as defaultGetOutputChannel,
@@ -124,7 +123,7 @@ async function runFinalize(deps: FinalizeDeps): Promise<void> {
     return;
   }
 
-  const counts = countByStatus([...state.doc.items]);
+  const counts = countByStatus(state.doc.items);
   const summary = renderSummary({ filePath, counts });
   deps.log.appendLine(summary.block);
 
@@ -248,5 +247,3 @@ function defaultReadFile(filePath: string): Promise<string> {
 function defaultSha256(data: string): string {
   return createHash('sha256').update(data, 'utf8').digest('hex').slice(0, 8);
 }
-
-export type { LoadedFindings, StatusCounts };

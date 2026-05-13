@@ -10,6 +10,7 @@ import {
   getOutputChannel as defaultGetOutputChannel,
   setState,
 } from '../runtime/findings-state';
+import { safeSetContext } from '../runtime/vscode-context';
 import { renderFindings as defaultRenderFindings } from '../comments/renderer';
 import {
   disposeAll as defaultDisposeActiveThreads,
@@ -323,5 +324,10 @@ function defaultLoadShaSha256(data: string): string {
 }
 
 function setHasFindingsContext(value: boolean): void {
-  vscode.commands.executeCommand('setContext', 'reviewPlugin.hasFindings', value);
+  const channel = defaultGetOutputChannel();
+  safeSetContext(
+    { warn: (msg) => channel.appendLine(`[warn] ${msg}`) },
+    'reviewPlugin.hasFindings',
+    value,
+  );
 }

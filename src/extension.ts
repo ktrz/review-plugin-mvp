@@ -20,6 +20,7 @@ import {
   type ThreadActionState,
 } from './commands/thread-actions';
 import { registerFinalizeSessionCommand } from './commands/finalize-session';
+import { safeSetContext } from './runtime/vscode-context';
 
 export function activate(context: vscode.ExtensionContext): void {
   const channel = vscode.window.createOutputChannel('Review Plugin');
@@ -45,7 +46,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(threadCommands);
 
   registerFinalizeSessionCommand(context);
-  vscode.commands.executeCommand('setContext', 'reviewPlugin.hasFindings', false);
+  safeSetContext(
+    { warn: (msg) => channel.appendLine(`[warn] ${msg}`) },
+    'reviewPlugin.hasFindings',
+    false,
+  );
 }
 
 export function deactivate(): void {

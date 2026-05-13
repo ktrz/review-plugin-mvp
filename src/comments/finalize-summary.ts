@@ -17,7 +17,7 @@ export class UnknownStatusError extends Error {
   }
 }
 
-export function countByStatus(items: FindingItem[]): StatusCounts {
+export function countByStatus(items: ReadonlyArray<FindingItem>): StatusCounts {
   const counts: StatusCounts = {
     resolved: 0,
     custom: 0,
@@ -44,8 +44,9 @@ export function countByStatus(items: FindingItem[]): StatusCounts {
         counts.unresolved += 1;
         break;
       default: {
-        const exhaustive: never = status;
-        throw new UnknownStatusError(exhaustive as string);
+        const _exhaustive: never = status;
+        void _exhaustive;
+        throw new UnknownStatusError(String(status));
       }
     }
   }

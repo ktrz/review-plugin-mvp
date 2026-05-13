@@ -1,0 +1,307 @@
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import * as vscode from 'vscode';
+import type { FindingItem, Severity, StatusMarker } from '../schema';
+import { buildThread } from './thread-builder';
+
+type FakeThread = {
+  uri: vscode.Uri;
+  range: vscode.Range;
+  comments: readonly vscode.Comment[];
+  label: string;
+  contextValue: string;
+  canReply: boolean;
+  collapsibleState: vscode.CommentThreadCollapsibleState;
+  dispose: ReturnType<typeof vi.fn>;
+};
+
+const makeFakeController = () => {
+  let last: FakeThread | null = null;
+  const createCommentThread = vi.fn((uri, range, comments): vscode.CommentThread => {
+    const thread: FakeThread = {
+      uri,
+      range,
+      comments,
+      label: '',
+      contextValue: '',
+      canReply: false,
+      collapsibleState: vscode.CommentThreadCollapsibleState.Collapsed,
+      dispose: vi.fn(),
+    };
+    last = thread;
+    return thread satisfies Partial<vscode.CommentThread> as vscode.CommentThread;
+  });
+  const fake = {
+    id: 'reviewPlugin.findings',
+    label: 'Review Plugin',
+    createCommentThread,
+    dispose: vi.fn(),
+  } satisfies Partial<vscode.CommentController>;
+  return {
+    controller: fake as vscode.CommentController,
+    createCommentThread,
+    lastThread: () => {
+      if (last === null) {throw new Error('createCommentThread not called');}
+      return last;
+    },
+  };
+};
+
+interface MakeFindingOptions {
+  status?: StatusMarker;
+  sourceKind?: 'auto-review' | 'reviewer';
+  login?: string;
+  severity?: Severity;
+  locationKind?: 'file' | 'review-body';
+  file?: string;
+  line?: number;
+  options?: string[];
+  resolution?: string;
+  comment?: string;
+  analysis?: string;
+  recommendation?: string;
+}
+
+const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
+  const sourceKind = opts.sourceKind ?? 'auto-review';
+  const severity = opts.severity ?? 'critical';
+  const source =
+    sourceKind === 'auto-review'
+      ? { kind: 'auto-review' as const, severity }
+      : { kind: 'reviewer' as const, login: opts.login ?? 'alice', severity };
+  const location =
+    (opts.locationKind ?? 'file') === 'file'
+      ? {
+          kind: 'file' as const,
+          file: opts.file ?? 'src/router.ts',
+          line: opts.line ?? 42,
+        }
+      : { kind: 'review-body' as const };
+  const status = opts.status ?? 'unresolved';
+  const resolution =
+    opts.resolution ??
+    (status === 'resolved' || status === 'custom' ? 'fixed in follow-up' : '');
+  return {
+    dirty: false,
+    rawSource: 'raw',
+    status,
+    source,
+    location,
+    reportedBy: ['auto-review'],
+    comment: opts.comment ?? 'something is off',
+    analysis: opts.analysis ?? 'detailed analysis',
+    recommendation: opts.recommendation ?? 'do the thing',
+    options: opts.options ?? ['option one', 'option two'],
+    resolution,
+  } as FindingItem;
+};
+
+describe('buildThread', () => {
+  describe('location filtering', () => {
+    it('returns null when finding location.kind is review-body', () => {
+      const { controller, createCommentThread } = makeFakeController();
+      const finding = makeFinding({ locationKind: 'review-body' });
+      const result = buildThread({ finding, controller, workspaceRoot: '/repo' });
+      expect(result).toBeNull();
+      expect(createCommentThread).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('anchor', () => {
+    it('joins relative file path to workspace root and uses zero-width range at line-1', () => {
+      const { controller, createCommentThread } = makeFakeController();
+      const finding = makeFinding({ file: 'src/router.ts', line: 42 });
+      buildThread({ finding, controller, workspaceRoot: '/repo' });
+      expect(createCommentThread).toHaveBeenCalledTimes(1);
+      const [uri, range] = createCommentThread.mock.calls[0];
+      expect((uri as { fsPath: string }).fsPath).toBe(path.resolve('/repo', 'src/router.ts'));
+      expect(range).toBeInstanceOf(vscode.Range);
+      expect(range.start.line).toBe(41);
+      expect(range.start.character).toBe(0);
+      expect(range.end.line).toBe(41);
+      expect(range.end.character).toBe(0);
+    });
+
+    it('passes absolute file paths through path.resolve unchanged', () => {
+      const { controller, createCommentThread } = makeFakeController();
+      const finding = makeFinding({ file: '/abs/src/x.ts', line: 1 });
+      buildThread({ finding, controller, workspaceRoot: '/repo' });
+      const [uri] = createCommentThread.mock.calls[0];
+      expect((uri as { fsPath: string }).fsPath).toBe('/abs/src/x.ts');
+    });
+  });
+
+  describe('thread metadata', () => {
+    it('labels auto-review critical unresolved correctly', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({
+          status: 'unresolved',
+          sourceKind: 'auto-review',
+          severity: 'critical',
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().label).toBe('[unresolved] critical · auto-review');
+    });
+
+    it('labels reviewer deferred important with @login', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({
+          status: 'deferred',
+          sourceKind: 'reviewer',
+          login: 'alice',
+          severity: 'important',
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().label).toBe('[deferred] important · @alice');
+    });
+
+    it('sets canReply false and contextValue review-finding', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding(),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().canReply).toBe(false);
+      expect(lastThread().contextValue).toBe('review-finding');
+    });
+
+    it('expands critical threads', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ severity: 'critical' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Expanded);
+    });
+
+    it('expands important threads', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ severity: 'important' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Expanded);
+    });
+
+    it('collapses suggestion threads', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ severity: 'suggestion' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
+    });
+
+    it('collapses nit threads', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ severity: 'nit' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
+    });
+  });
+
+  describe('comment body composition', () => {
+    it('contains Comment / Analysis / Recommendation / Options sections as MarkdownString', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({
+          comment: 'C1',
+          analysis: 'A1',
+          recommendation: 'R1',
+          options: ['opt one', 'opt two'],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const comments = lastThread().comments;
+      expect(comments.length).toBe(1);
+      const [body] = comments;
+      expect(body.body).toBeInstanceOf(vscode.MarkdownString);
+      const md = body.body as vscode.MarkdownString;
+      expect(md.value).toContain('**Comment:** C1');
+      expect(md.value).toContain('**Analysis:** A1');
+      expect(md.value).toContain('**Recommendation:** R1');
+      expect(md.value).toContain('**Options:**');
+      expect(md.value).toContain('- opt one');
+      expect(md.value).toContain('- opt two');
+      expect(md.isTrusted).toBe(false);
+      expect(md.supportHtml).toBe(false);
+    });
+
+    it('omits Options block when options array is empty', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ options: [] }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).not.toContain('**Options:**');
+    });
+
+    it('omits Resolution block (deferred)', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ status: 'resolved', resolution: 'done' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).not.toContain('**Resolution:**');
+      expect(md.value).not.toContain('done');
+    });
+
+    it('uses preview mode for the comment', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding(),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].mode).toBe(vscode.CommentMode.Preview);
+    });
+
+    it('sets comment contextValue to review-finding-comment', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding(),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].contextValue).toBe('review-finding-comment');
+    });
+
+    it('sets comment author.name to the source label for auto-review', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ sourceKind: 'auto-review' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].author.name).toBe('auto-review');
+    });
+
+    it('sets comment author.name to @login for reviewer source', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThread({
+        finding: makeFinding({ sourceKind: 'reviewer', login: 'bob' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].author.name).toBe('@bob');
+    });
+  });
+});

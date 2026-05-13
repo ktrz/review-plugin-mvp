@@ -11,6 +11,7 @@ import {
 import { clearState, getState, setOutputChannel } from '../runtime/findings-state';
 import { HandoverDocumentSchema, ParseError, type HandoverDocument } from '../schema';
 import type { RenderFindingsDeps, RenderFindingsResult } from '../comments/renderer';
+import type { FindingsWriter, WriteResult } from '../runtime/findings-writer';
 
 const WORKSPACE = '/tmp/repo';
 
@@ -89,6 +90,35 @@ const makeFakeThread = (label = 'fake'): vscode.CommentThread => {
   return fake as vscode.CommentThread;
 };
 
+type WriteSpy = ReturnType<typeof vi.fn<[string, string], Promise<WriteResult>>>;
+type GetLastShaSpy = ReturnType<typeof vi.fn<[string], string | undefined>>;
+
+interface FakeWriter extends FindingsWriter {
+  writeSpy: WriteSpy;
+  getLastWriteShaSpy: GetLastShaSpy;
+  shaByPath: Map<string, string>;
+}
+
+function makeFakeWriter(initial: { sha?: string; mtime?: number } = {}): FakeWriter {
+  const shaByPath = new Map<string, string>();
+  const writeSpy: WriteSpy = vi.fn(
+    async (filePath: string, _serialized: string): Promise<WriteResult> => {
+      const sha = initial.sha ?? 'aaaa1111';
+      shaByPath.set(filePath, sha);
+      return { mtime: initial.mtime ?? 4242, sha };
+    },
+  );
+  const getLastWriteShaSpy: GetLastShaSpy = vi.fn((p: string) => shaByPath.get(p));
+  const writer: FakeWriter = {
+    write: writeSpy,
+    getLastWriteSha: getLastWriteShaSpy,
+    writeSpy,
+    getLastWriteShaSpy,
+    shaByPath,
+  };
+  return writer;
+}
+
 function makeDeps(overrides: Partial<LoadDeps> = {}) {
   const watcherDispose = vi.fn();
   const watcherCallbacks: WatcherCallbacks = {
@@ -116,6 +146,10 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
   );
   const setActiveThreads = vi.fn();
   const disposeActiveThreads = vi.fn();
+  const writer = makeFakeWriter();
+  const generateId = vi.fn(() => 'stamped-uuid');
+  const readFile = vi.fn(async (_p: string) => 'disk-bytes');
+  const sha256 = vi.fn((_d: string) => 'disk-sha8');
 
   const deps: LoadDeps = {
     workspaceRoot: WORKSPACE,
@@ -129,6 +163,10 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     renderFindings: renderFindings as LoadDeps['renderFindings'],
     setActiveThreads,
     disposeActiveThreads,
+    writer,
+    generateId,
+    readFile,
+    sha256,
     ...overrides,
   };
 
@@ -144,6 +182,10 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     setActiveThreads,
     disposeActiveThreads,
     renderResult,
+    writer,
+    generateId,
+    readFile,
+    sha256,
   };
 }
 
@@ -397,6 +439,147 @@ describe('loadFindingsHandler', () => {
     expect(disposeActiveThreads).toHaveBeenCalled();
   });
 
+  describe('stamp + writer integration', () => {
+    const makeUnstampedDoc = (): HandoverDocument => {
+      const stamped = makeDoc();
+      const firstItem = stamped.items[0];
+      if (firstItem === undefined) {
+        throw new Error('test fixture invariant: makeDoc must yield at least one item');
+      }
+      return {
+        ...stamped,
+        items: [{ ...firstItem, id: '' }],
+      };
+    };
+
+    it('stamps missing ids and writes the document back on first load', async () => {
+      const docWithoutIds = makeUnstampedDoc();
+      const { deps, channel, writer, generateId } = makeDeps({
+        loadFindingsFile: vi.fn(async () => ({
+          doc: docWithoutIds,
+          mtime: 100,
+        })) as LoadDeps['loadFindingsFile'],
+      });
+      generateId.mockReturnValueOnce('uuid-stamp-1');
+
+      await loadFindingsHandler(deps);
+
+      expect(writer.writeSpy).toHaveBeenCalledTimes(1);
+      const [writtenPath, serialized] = writer.writeSpy.mock.calls[0] ?? [];
+      expect(writtenPath).toBe('/tmp/repo/pr-42-auto-review.md');
+      expect(typeof serialized).toBe('string');
+      expect(String(serialized)).toContain('uuid-stamp-1');
+
+      const state = getState();
+      expect(state).not.toBeNull();
+      expect(state?.lastWriteSha).toBe('aaaa1111');
+      expect(state?.mtime).toBe(4242);
+      expect(state?.doc.items[0]?.id).toBe('uuid-stamp-1');
+      expect(channel.appendLine).toHaveBeenCalledWith(
+        expect.stringContaining('Stamped missing ids and wrote findings back'),
+      );
+    });
+
+    it('does not write when all ids are already present', async () => {
+      const { deps, writer } = makeDeps();
+
+      await loadFindingsHandler(deps);
+
+      expect(writer.writeSpy).not.toHaveBeenCalled();
+      expect(getState()?.lastWriteSha).toBeUndefined();
+    });
+
+    it('aborts and surfaces error when stamp write fails', async () => {
+      const docWithoutIds = makeUnstampedDoc();
+      const writer = makeFakeWriter();
+      writer.writeSpy.mockRejectedValueOnce(new Error('disk full'));
+      const { deps, channel, showError, disposeActiveThreads } = makeDeps({
+        loadFindingsFile: vi.fn(async () => ({
+          doc: docWithoutIds,
+          mtime: 100,
+        })) as LoadDeps['loadFindingsFile'],
+        writer,
+      });
+
+      await loadFindingsHandler(deps);
+
+      expect(showError).toHaveBeenCalledWith(
+        'Failed to load findings — see Review Plugin output.',
+      );
+      expect(channel.appendLine).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to write stamped findings'),
+      );
+      expect(getState()).toBeNull();
+      expect(disposeActiveThreads).toHaveBeenCalled();
+    });
+  });
+
+  describe('watcher self-write barrier', () => {
+    it('skips reload when disk sha matches writer lastWriteSha', async () => {
+      const writer = makeFakeWriter({ sha: 'selfwrite' });
+      writer.shaByPath.set('/tmp/repo/pr-42-auto-review.md', 'selfwrite');
+      const { deps, watcherCallbacks, channel, loadFindingsFile, sha256, readFile } =
+        makeDeps({ writer });
+      sha256.mockReturnValue('selfwrite');
+
+      await loadFindingsHandler(deps);
+      loadFindingsFile.mockClear();
+      const channelAppend = channel.appendLine as ReturnType<typeof vi.fn>;
+      channelAppend.mockClear();
+      sha256.mockClear();
+      readFile.mockClear();
+
+      await watcherCallbacks.onReload();
+
+      expect(readFile).toHaveBeenCalledWith('/tmp/repo/pr-42-auto-review.md');
+      expect(sha256).toHaveBeenCalled();
+      expect(loadFindingsFile).not.toHaveBeenCalled();
+      expect(channelAppend).toHaveBeenCalledWith(
+        expect.stringContaining('Self-write detected'),
+      );
+    });
+
+    it('runs reload when disk sha differs from writer lastWriteSha (external edit)', async () => {
+      const writer = makeFakeWriter({ sha: 'plugin-wrote' });
+      writer.shaByPath.set('/tmp/repo/pr-42-auto-review.md', 'plugin-wrote');
+      const docA = makeDoc();
+      const docB = makeDoc();
+      const loadFindingsFile = vi
+        .fn()
+        .mockResolvedValueOnce({ doc: docA, mtime: 100 })
+        .mockResolvedValueOnce({ doc: docB, mtime: 200 });
+      const { deps, watcherCallbacks, sha256, channel } = makeDeps({
+        writer,
+        loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
+      });
+      sha256.mockReturnValue('external-edit');
+
+      await loadFindingsHandler(deps);
+      (channel.appendLine as ReturnType<typeof vi.fn>).mockClear();
+
+      await watcherCallbacks.onReload();
+
+      expect(loadFindingsFile).toHaveBeenCalledTimes(2);
+      expect(getState()?.doc).toBe(docB);
+      expect(getState()?.mtime).toBe(200);
+    });
+
+    it('skips the disk sha check entirely when writer has no recorded write for the path', async () => {
+      const { deps, watcherCallbacks, readFile, sha256, loadFindingsFile } = makeDeps();
+
+      await loadFindingsHandler(deps);
+      loadFindingsFile.mockClear();
+      readFile.mockClear();
+      sha256.mockClear();
+
+      await watcherCallbacks.onReload();
+
+      expect(readFile).not.toHaveBeenCalled();
+      expect(sha256).not.toHaveBeenCalled();
+      expect(loadFindingsFile).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('watcher onDelete clears state, disposes watcher, disposes threads, logs to channel', async () => {
     const { deps, watcherCallbacks, watcherDispose, channel, disposeActiveThreads } = makeDeps();
 
@@ -436,7 +619,7 @@ describe('registerLoadFindingsCommand', () => {
     });
     setWorkspaceFolders([{ uri: { fsPath: WORKSPACE }, name: 'repo', index: 0 }]);
 
-    const extras: LoadExtras = { controller: makeFakeController() };
+    const extras: LoadExtras = { controller: makeFakeController(), writer: makeFakeWriter() };
     registerLoadFindingsCommand(context, extras);
 
     expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
@@ -458,7 +641,7 @@ describe('registerLoadFindingsCommand', () => {
     );
     setWorkspaceFolders(undefined);
 
-    const extras: LoadExtras = { controller: makeFakeController() };
+    const extras: LoadExtras = { controller: makeFakeController(), writer: makeFakeWriter() };
     registerLoadFindingsCommand(context, extras);
     expect(captured).not.toBeNull();
     await captured!();

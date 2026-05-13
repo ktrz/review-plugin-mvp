@@ -10,7 +10,6 @@ import {
 } from './thread-actions';
 import * as applyDecisionModule from '../comments/apply-decision';
 import { HandoverDocumentSchema, type FindingItem, type HandoverDocument } from '../schema';
-import type { FindingItemWithId } from '../comments/thread-builder';
 import type { FindingsWriter } from '../runtime/findings-writer';
 
 const FILE_PATH = '/tmp/repo/pr-1-auto-review.md';
@@ -223,7 +222,7 @@ describe('handleThreadDecision', () => {
     expect(next?.lastWriteSha).toBe('sha12345');
     expect(next?.filePath).toBe(FILE_PATH);
     expect(refreshThread).toHaveBeenCalledTimes(1);
-    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItemWithId;
+    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItem;
     expect(refreshedItem.id).toBe('id-1');
     expect(refreshedItem.status).toBe('resolved');
   });
@@ -234,7 +233,7 @@ describe('handleThreadDecision', () => {
 
     await handleThreadDecision({ thread, decision: 'dismiss', deps });
 
-    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItemWithId;
+    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItem;
     expect(refreshedItem.status).toBe('skipped');
   });
 
@@ -244,7 +243,7 @@ describe('handleThreadDecision', () => {
 
     await handleThreadDecision({ thread, decision: 'discuss', deps });
 
-    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItemWithId;
+    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItem;
     expect(refreshedItem.status).toBe('deferred');
   });
 
@@ -260,7 +259,7 @@ describe('handleThreadDecision', () => {
 
     await handleThreadDecision({ thread, decision: 'unresolve', deps });
 
-    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItemWithId;
+    const refreshedItem = refreshThread.mock.calls[0]?.[1] as FindingItem;
     expect(refreshedItem.status).toBe('unresolved');
     expect(refreshedItem.resolution).toBe('kept verbatim');
   });

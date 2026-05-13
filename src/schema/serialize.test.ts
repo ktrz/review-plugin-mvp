@@ -65,6 +65,110 @@ describe('serializeDocument — Id field rendering', () => {
   });
 });
 
+describe('serializeDocument — Chat block', () => {
+  it('omits **Chat:** block when chat is undefined', () => {
+    const doc: HandoverDocument = {
+      header,
+      items: [dirtyItem({ id: 'no-chat' })],
+    };
+    const out = serializeDocument(doc);
+    expect(out).not.toContain('**Chat:**');
+  });
+
+  it('omits **Chat:** block when chat is an empty array', () => {
+    const item = { ...dirtyItem({ id: 'empty-chat' }), chat: [] } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    expect(out).not.toContain('**Chat:**');
+  });
+
+  it('renders a single user message', () => {
+    const item = {
+      ...dirtyItem({ id: 'one-msg' }),
+      chat: [{ role: 'user', content: 'hello' }],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    expect(out).toContain('**Chat:**\n- user: hello');
+  });
+
+  it('renders alternating user/assistant messages in order', () => {
+    const item = {
+      ...dirtyItem({ id: 'multi-msg' }),
+      chat: [
+        { role: 'user', content: 'ping' },
+        { role: 'assistant', content: 'pong' },
+      ],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    expect(out).toContain('**Chat:**\n- user: ping\n- assistant: pong');
+  });
+
+  it('renders multi-line content via two-space continuation', () => {
+    const item = {
+      ...dirtyItem({ id: 'multiline-msg' }),
+      chat: [
+        { role: 'user', content: 'line one\nline two\nline three' },
+      ],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    expect(out).toContain('**Chat:**\n- user: line one\n  line two\n  line three');
+  });
+
+  it('places **Chat:** between **Options:** and **Resolution:**', () => {
+    const item = {
+      ...dirtyItem({ id: 'position-chat' }),
+      chat: [{ role: 'user', content: 'x' }],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    const optionsIdx = out.indexOf('**Options:**');
+    const chatIdx = out.indexOf('**Chat:**');
+    const resolutionIdx = out.indexOf('**Resolution:**');
+    expect(optionsIdx).toBeGreaterThanOrEqual(0);
+    expect(chatIdx).toBeGreaterThan(optionsIdx);
+    expect(resolutionIdx).toBeGreaterThan(chatIdx);
+  });
+
+  it('round-trips multi-message chat through parse → serialize → parse', () => {
+    const item = {
+      ...dirtyItem({ id: 'rt-multi' }),
+      chat: [
+        { role: 'user', content: 'one' },
+        { role: 'assistant', content: 'two' },
+        { role: 'user', content: 'three' },
+      ],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    const reparsed = parseDocument(out);
+    expect(reparsed.items[0].chat).toEqual([
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: 'two' },
+      { role: 'user', content: 'three' },
+    ]);
+  });
+
+  it('round-trips multi-line content through parse → serialize → parse', () => {
+    const item = {
+      ...dirtyItem({ id: 'rt-multiline' }),
+      chat: [
+        { role: 'user', content: 'line one\nline two' },
+        { role: 'assistant', content: 'ack' },
+      ],
+    } satisfies FindingItem;
+    const doc: HandoverDocument = { header, items: [item] };
+    const out = serializeDocument(doc);
+    const reparsed = parseDocument(out);
+    expect(reparsed.items[0].chat).toEqual([
+      { role: 'user', content: 'line one\nline two' },
+      { role: 'assistant', content: 'ack' },
+    ]);
+  });
+});
+
 describe('serializeDocument — round-trips a stamped item', () => {
   it('parse(serialize({ id: "abc" })) preserves the id verbatim', () => {
     const doc: HandoverDocument = {

@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { parseDocument } from './parse';
 import { serializeDocument } from './serialize';
 import { markResolved } from './mutations';
+import type { FindingItem } from './types';
 
 const fixtureDir = join(__dirname, '../../fixtures');
 
@@ -93,6 +94,30 @@ describe('round-trip — parse → serialize → parse', () => {
       });
     });
   }
+
+  describe('chat field round-trip', () => {
+    it('chat array survives parse → serialize → parse identical', () => {
+      const item = doc1.items[0];
+      const itemWithChat: FindingItem = {
+        ...item,
+        dirty: true,
+        chat: [
+          { role: 'user', content: 'What about the bearer header?' },
+          { role: 'assistant', content: 'It is required.\nSecond line.' },
+          { role: 'user', content: 'thanks' },
+        ],
+        options: [...item.options],
+        reportedBy: [item.reportedBy[0], ...item.reportedBy.slice(1)],
+      };
+      const mutatedDoc = {
+        ...doc1,
+        items: doc1.items.map((it, idx) => idx === 0 ? itemWithChat : it),
+      };
+      const s = serializeDocument(mutatedDoc);
+      const reparsed = parseDocument(s);
+      expect(reparsed.items[0].chat).toEqual(itemWithChat.chat);
+    });
+  });
 
   describe('withResolution integration', () => {
     it('markResolved sets Resolution field in serialized output', () => {

@@ -3,6 +3,7 @@ import {
   DocumentHeaderSchema,
   FindingItemBaseSchema,
   SeveritySchema,
+  type ChatMessage,
   type HandoverDocument,
   type FindingItem,
   type StatusMarker,
@@ -34,6 +35,7 @@ type ActiveItem = {
   recommendation: string;
   options: string[];
   resolution: string;
+  chat: ChatMessage[] | undefined;
   severitySeen: boolean;   // tracks whether **Severity:** field was seen for reviewer items
   startOffset: number;
 };
@@ -43,6 +45,7 @@ type ParserStateValue =
   | { state: 'BETWEEN_ITEMS' }
   | { state: 'IN_ITEM_FIELDS'; item: ActiveItem }
   | { state: 'IN_OPTIONS'; item: ActiveItem }
+  | { state: 'IN_CHAT'; item: ActiveItem }
   | { state: 'IN_RESOLUTION'; item: ActiveItem };
 
 // Exported so callers can reference parser state names without importing the internal union type.
@@ -114,8 +117,11 @@ const KNOWN_HEADER_KEYS = new Set([
 // Known item field keys (allow-list); 'Note' is ignored but not an error
 const KNOWN_ITEM_FIELDS = new Set([
   'Severity', 'Source', 'Reported by', 'Id', 'Comment', 'Analysis',
-  'Recommendation', 'Resolution', 'Note', 'Options',
+  'Recommendation', 'Resolution', 'Note', 'Options', 'Chat',
 ]);
+
+const CHAT_BULLET_RE = /^- ([a-zA-Z]+): (.*)$/;
+const CHAT_CONTINUATION_RE = /^  (.*)$/;
 
 function handleItemBoundary(line: string): 'separator' | 'new-heading' | null {
   if (line.trim() === '---') { return 'separator'; }
@@ -151,7 +157,7 @@ function finalizeItem(
   // Trim only \r and \n (preserve trailing horizontal whitespace per byte-preservation guarantee)
   const rawSource = raw.slice(item.startOffset, endOffset).replace(/[\r\n]+$/, '');
 
-  out.push({
+  const finalized: FindingItem = {
     id: item.id,
     status: item.status,
     source: item.source,
@@ -164,7 +170,11 @@ function finalizeItem(
     resolution: item.resolution,
     rawSource,
     dirty: false,
-  } as FindingItem);
+  } as FindingItem;
+  if (item.chat !== undefined && item.chat.length > 0) {
+    (finalized as { chat?: ChatMessage[] }).chat = item.chat;
+  }
+  out.push(finalized);
 }
 
 function applyField(
@@ -275,6 +285,7 @@ function parseItemHeading(
     recommendation: '',
     options: [],
     resolution: '',
+    chat: undefined,
     severitySeen: source.kind === 'auto-review', // auto-review: severity seen; reviewer: wait for field
     startOffset,
   };
@@ -429,6 +440,9 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
           const value = fieldMatch[2].trim();
           if (key === 'Options') {
             sv = { state: 'IN_OPTIONS', item: sv.item };
+          } else if (key === 'Chat') {
+            sv.item.chat = [];
+            sv = { state: 'IN_CHAT', item: sv.item };
           } else if (key === 'Resolution') {
             sv.item.resolution = value;
             sv = { state: 'IN_RESOLUTION', item: sv.item };
@@ -455,7 +469,10 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
         if (fieldMatch) {
           const key = fieldMatch[1].trim();
           const value = fieldMatch[2].trim();
-          if (key === 'Resolution') {
+          if (key === 'Chat') {
+            sv.item.chat = [];
+            sv = { state: 'IN_CHAT', item: sv.item };
+          } else if (key === 'Resolution') {
             sv.item.resolution = value;
             sv = { state: 'IN_RESOLUTION', item: sv.item };
           } else if (key === 'Note') {
@@ -476,6 +493,51 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
       }
     }
 
+    else if (sv.state === 'IN_CHAT') {
+      const boundary = handleItemBoundary(line);
+      if (boundary !== null) {
+        sv = transitionOnBoundary(boundary, sv.item, line, raw, lineOffset, lineNum, 'IN_CHAT', items);
+      } else {
+        const fieldMatch = FIELD_RE.exec(line);
+        if (fieldMatch) {
+          const key = fieldMatch[1].trim();
+          const value = fieldMatch[2].trim();
+          if (key === 'Resolution') {
+            sv.item.resolution = value;
+            sv = { state: 'IN_RESOLUTION', item: sv.item };
+          } else {
+            throw new ParseError(
+              `Unexpected field in chat block: **${key}:**`,
+              lineOffset, 'IN_CHAT', lineNum,
+            );
+          }
+        } else {
+          const bulletMatch = CHAT_BULLET_RE.exec(line);
+          if (bulletMatch) {
+            const role = bulletMatch[1];
+            const content = bulletMatch[2];
+            if (role !== 'user' && role !== 'assistant') {
+              throw new ParseError(
+                `Invalid chat role: "${role}"`,
+                lineOffset, 'IN_CHAT', lineNum,
+              );
+            }
+            if (sv.item.chat === undefined) {
+              sv.item.chat = [];
+            }
+            sv.item.chat.push({ role, content });
+          } else {
+            const contMatch = CHAT_CONTINUATION_RE.exec(line);
+            if (contMatch && sv.item.chat !== undefined && sv.item.chat.length > 0) {
+              const last = sv.item.chat[sv.item.chat.length - 1];
+              last.content = `${last.content}\n${contMatch[1]}`;
+            }
+          }
+          // blank lines and unrelated lines inside IN_CHAT are skipped
+        }
+      }
+    }
+
     else if (sv.state === 'IN_RESOLUTION') {
       const boundary = handleItemBoundary(line);
       if (boundary !== null) {
@@ -492,7 +554,7 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
   }
 
   // Finalize the last item if still open
-  if (sv.state === 'IN_ITEM_FIELDS' || sv.state === 'IN_OPTIONS' || sv.state === 'IN_RESOLUTION') {
+  if (sv.state === 'IN_ITEM_FIELDS' || sv.state === 'IN_OPTIONS' || sv.state === 'IN_CHAT' || sv.state === 'IN_RESOLUTION') {
     finalizeItem(sv.item, raw, offset, items);
   }
 

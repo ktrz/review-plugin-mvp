@@ -17,6 +17,8 @@ import type { HunkLoader, HunkLoadResult } from '../llm/hunk-loader';
 import type { BuildPromptInput } from '../llm/prompt-builder';
 import type { RenderChatDeps } from '../comments/chat-renderer';
 
+export const CHAT_SEND_COMMAND_ID = 'reviewPlugin.chat.send';
+
 export interface ChatReplyArgs {
   thread: vscode.CommentThread;
   text: string;

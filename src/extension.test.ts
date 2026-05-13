@@ -6,6 +6,8 @@ import {
 } from './commands/load-findings';
 import { THREAD_COMMAND_IDS } from './commands/thread-actions';
 import { FINALIZE_SESSION_COMMAND_ID } from './commands/finalize-session';
+import { CHAT_SEND_COMMAND_ID } from './commands/chat-reply';
+import { FINALIZE_CHAT_COMMAND_ID } from './commands/finalize-chat';
 import { clearState, __resetOutputChannelForTests } from './runtime/findings-state';
 
 const makeChannel = (): vscode.OutputChannel => {
@@ -21,14 +23,51 @@ const makeChannel = (): vscode.OutputChannel => {
   return fake as vscode.OutputChannel;
 };
 
-const makeController = (): vscode.CommentController => {
-  const fake: Partial<vscode.CommentController> = {
+interface ControllerSpy extends vscode.CommentController {
+  __setProvider?: (provider: vscode.CommentingRangeProvider) => void;
+  __getProvider?: () => vscode.CommentingRangeProvider | undefined;
+  __getOptions?: () => vscode.CommentOptions | undefined;
+}
+
+const makeController = (): ControllerSpy => {
+  let provider: vscode.CommentingRangeProvider | undefined;
+  let options: vscode.CommentOptions | undefined;
+  const fake: Partial<ControllerSpy> = {
     id: 'reviewPlugin.findings',
     label: 'Review Plugin',
     createCommentThread: vi.fn(),
     dispose: vi.fn(),
+    __setProvider(p) {
+      provider = p;
+    },
+    __getProvider() {
+      return provider;
+    },
+    __getOptions() {
+      return options;
+    },
   };
-  return fake as vscode.CommentController;
+  Object.defineProperty(fake, 'commentingRangeProvider', {
+    configurable: true,
+    enumerable: true,
+    get(): vscode.CommentingRangeProvider | undefined {
+      return provider;
+    },
+    set(value: vscode.CommentingRangeProvider | undefined): void {
+      provider = value;
+    },
+  });
+  Object.defineProperty(fake, 'options', {
+    configurable: true,
+    enumerable: true,
+    get(): vscode.CommentOptions | undefined {
+      return options;
+    },
+    set(value: vscode.CommentOptions | undefined): void {
+      options = value;
+    },
+  });
+  return fake as ControllerSpy;
 };
 
 describe('activate', () => {
@@ -54,7 +93,7 @@ describe('activate', () => {
     clearState();
   });
 
-  it('registers loadFindings, finalize, and all four thread commands', () => {
+  it('registers loadFindings, finalize, all four thread commands, plus chat send + finalize-chat', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
@@ -70,6 +109,30 @@ describe('activate', () => {
     expect(registerCalls).toContain(THREAD_COMMAND_IDS.discuss);
     expect(registerCalls).toContain(THREAD_COMMAND_IDS.unresolve);
     expect(registerCalls).toContain(FINALIZE_SESSION_COMMAND_ID);
+    expect(registerCalls).toContain(CHAT_SEND_COMMAND_ID);
+    expect(registerCalls).toContain(FINALIZE_CHAT_COMMAND_ID);
+  });
+
+  it('wires controller.commentingRangeProvider and reply prompt options', () => {
+    const controller = makeController();
+    (vscode.comments.createCommentController as ReturnType<typeof vi.fn>).mockReturnValue(
+      controller,
+    );
+    const subscriptions: vscode.Disposable[] = [];
+    const context = {
+      subscriptions,
+    } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
+
+    activate(context);
+
+    const provider = controller.__getProvider?.();
+    expect(provider).toBeDefined();
+    expect(typeof provider?.provideCommentingRanges).toBe('function');
+
+    const options = controller.__getOptions?.();
+    expect(options).toBeDefined();
+    expect(options?.prompt).toBe('Reply…');
+    expect(options?.placeHolder).toBe('Type your message');
   });
 
   it('seeds reviewPlugin.hasFindings = false on activation', () => {

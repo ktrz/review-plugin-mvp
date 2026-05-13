@@ -89,6 +89,11 @@ export const CommentThreadCollapsibleState = {
   Expanded: 1,
 } as const;
 
+export const CommentThreadState = {
+  Unresolved: 0,
+  Resolved: 1,
+} as const;
+
 type Listener<T> = (e: T) => unknown;
 
 export class EventEmitter<T> {

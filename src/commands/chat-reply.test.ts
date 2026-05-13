@@ -14,6 +14,7 @@ import {
   type ChatSessionStore,
 } from '../runtime/chat-session';
 import { ClaudeRunnerError } from '../llm/claude-runner';
+import { renderChat } from '../comments/chat-renderer';
 
 const FILE_PATH = '/tmp/repo/pr-1-auto-review.md';
 const FINDING_ID = 'F-001';
@@ -366,5 +367,70 @@ describe('createChatReplyHandler', () => {
     const lastItem = refreshCalls.at(-1)?.[1] as FindingItem;
     expect(lastItem.chat?.length).toBe(2);
     expect(lastItem.status).toBe('deferred');
+  });
+
+  it('renderChat is called after refreshThread so chat comments survive in thread.comments', async () => {
+    // Use the real renderChat and a real-ish refreshThread (resets to [findingComment])
+    // to verify the order. With the buggy order (renderChat first, refreshThread second)
+    // thread.comments ends up with length 1; with the fix (refreshThread first) it ends
+    // with length 3 (findingComment + user + assistant).
+    const baseItem = makeItem();
+    const stateRef: { current: LoadedFindings | null } = {
+      current: makeState(baseItem),
+    };
+    let writeCounter = 0;
+    const writer = {
+      write: vi.fn(async () => {
+        writeCounter += 1;
+        return { mtime: 100 + writeCounter, sha: `sha-${writeCounter}` };
+      }),
+      getLastWriteSha: vi.fn(() => undefined),
+    };
+    const setState = vi.fn((next: LoadedFindings) => {
+      stateRef.current = next;
+    });
+
+    // Real-ish refreshThread: resets thread.comments to [thread.comments[0]] (simulates render-session)
+    const refreshThread = vi.fn((thread: vscode.CommentThread, _item: FindingItem) => {
+      const first = thread.comments[0];
+      thread.comments = first !== undefined ? [first] : [];
+    });
+
+    const thread = makeThread();
+    const externalAbort = new AbortController();
+    const sessions: ChatSessionStore = {
+      start: vi.fn(() => externalAbort.signal),
+      complete: vi.fn(),
+      abort: vi.fn(),
+      isInFlight: vi.fn(() => false),
+      setPlaceholder: vi.fn(),
+      getPlaceholder: vi.fn(),
+    };
+
+    const deps: ChatReplyDeps = {
+      getState: () => stateRef.current,
+      setState,
+      writer: writer as Partial<FindingsWriter> as FindingsWriter,
+      runExclusive: async (_path, fn) => fn(),
+      runner: { run: vi.fn(async () => 'agent reply') },
+      promptBuilder: { build: vi.fn(() => 'PROMPT') },
+      hunkLoader: { load: vi.fn(async () => ({ hunk: 'h', startLine: 1, lang: 'typescript' })) },
+      sessions,
+      renderChat,
+      refreshThread,
+      findIdByThread: vi.fn(() => FINDING_ID),
+      getAuthorLabel: () => 'Chris',
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      window: {
+        showErrorMessage: vi.fn(async () => undefined),
+        showInformationMessage: vi.fn(async () => undefined),
+      },
+    };
+
+    const handler = createChatReplyHandler(deps);
+    await handler({ thread, text: 'why?' });
+
+    // After a successful turn: findingComment (index 0) + user comment + assistant comment = 3
+    expect(thread.comments).toHaveLength(3);
   });
 });

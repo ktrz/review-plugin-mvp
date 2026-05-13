@@ -220,8 +220,8 @@ async function runChatReply(deps: ChatReplyDeps, args: ChatReplyArgs): Promise<v
     return;
   }
   removePlaceholder(thread, placeholder);
-  deps.renderChat(thread, finalItem, { getAuthorLabel: deps.getAuthorLabel });
   deps.refreshThread(thread, finalItem);
+  deps.renderChat(thread, finalItem, { getAuthorLabel: deps.getAuthorLabel });
   deps.log.info(`Chat reply for ${id} completed — chat length ${finalItem.chat?.length ?? 0}.`);
 }
 

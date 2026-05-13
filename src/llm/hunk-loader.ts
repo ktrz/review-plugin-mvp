@@ -21,10 +21,6 @@ export class HunkLoaderError extends Error {
     super(message, options);
     this.name = 'HunkLoaderError';
   }
-
-  get cause(): unknown {
-    return (this as unknown as { cause?: unknown }).cause;
-  }
 }
 
 const SMALL_FILE_LIMIT = 200;

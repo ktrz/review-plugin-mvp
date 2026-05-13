@@ -249,4 +249,31 @@ describe('createClaudeRunner', () => {
       expect(ce.kind).toBe('aborted');
     }
   });
+
+  it('rejects with kind=exit when CLI exits 0 but stdout is empty', async () => {
+    const { spawn } = makeSpawn({ stdout: '\n\n', code: 0 });
+    const runner = createClaudeRunner({ spawn, ...baseDeps() });
+
+    try {
+      await runner.run('p', new AbortController().signal);
+      throw new Error('expected reject');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ClaudeRunnerError);
+      const ce = e as ClaudeRunnerError;
+      expect(ce.kind).toBe('exit');
+    }
+  });
+
+  it('rejects with kind=exit when CLI exits 0 but stdout is only whitespace', async () => {
+    const { spawn } = makeSpawn({ stdout: '   \t  \n  ', code: 0 });
+    const runner = createClaudeRunner({ spawn, ...baseDeps() });
+
+    try {
+      await runner.run('p', new AbortController().signal);
+      throw new Error('expected reject');
+    } catch (e) {
+      const ce = e as ClaudeRunnerError;
+      expect(ce.kind).toBe('exit');
+    }
+  });
 });

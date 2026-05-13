@@ -35,3 +35,7 @@ export function getOutputChannel(): vscode.OutputChannel {
   }
   return channel;
 }
+
+export function __resetOutputChannelForTests(): void {
+  channel = null;
+}

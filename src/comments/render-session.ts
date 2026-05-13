@@ -3,7 +3,7 @@ import { getOutputChannel } from '../runtime/findings-state';
 
 let activeThreads: vscode.CommentThread[] = [];
 
-export function setActiveThreads(next: vscode.CommentThread[]): void {
+export function setActiveThreads(next: readonly vscode.CommentThread[]): void {
   disposeAll();
   activeThreads = [...next];
 }

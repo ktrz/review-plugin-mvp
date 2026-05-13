@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
 import {
   disposeAll,
   getActiveThreads,
   setActiveThreads,
 } from './render-session';
+import {
+  __resetOutputChannelForTests,
+  setOutputChannel,
+} from '../runtime/findings-state';
 
 const makeThread = (label = 'thread'): vscode.CommentThread => {
   const fake: Partial<vscode.CommentThread> = {
@@ -106,6 +110,79 @@ describe('render-session', () => {
 
     it('returns an empty array before any setActiveThreads call', () => {
       expect(getActiveThreads()).toEqual([]);
+    });
+  });
+
+  describe('dispose error handling', () => {
+    const makeChannel = (): vscode.OutputChannel => {
+      const fake: Partial<vscode.OutputChannel> = {
+        name: 'Review Plugin',
+        appendLine: vi.fn(),
+        append: vi.fn(),
+        clear: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+        replace: vi.fn(),
+      };
+      return fake as vscode.OutputChannel;
+    };
+
+    afterEach(() => {
+      __resetOutputChannelForTests();
+    });
+
+    it('logs to the output channel when a thread.dispose throws and continues disposing the rest', () => {
+      const channel = makeChannel();
+      setOutputChannel(channel);
+      const throwingDispose = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const okDispose = vi.fn();
+      const throwingFake: Partial<vscode.CommentThread> = {
+        label: 'bad',
+        dispose: throwingDispose,
+      };
+      const okFake: Partial<vscode.CommentThread> = {
+        label: 'good',
+        dispose: okDispose,
+      };
+      const throwing = throwingFake as vscode.CommentThread;
+      const ok = okFake as vscode.CommentThread;
+
+      setActiveThreads([throwing, ok]);
+      disposeAll();
+
+      expect(throwingDispose).toHaveBeenCalledTimes(1);
+      expect(okDispose).toHaveBeenCalledTimes(1);
+      expect(channel.appendLine).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to dispose comment thread: boom'),
+      );
+      expect(getActiveThreads()).toEqual([]);
+    });
+
+    it('falls back to console.warn when the output channel is not initialized', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const throwingDispose = vi.fn(() => {
+          throw new Error('uninit-boom');
+        });
+        const throwingFake: Partial<vscode.CommentThread> = {
+          label: 'bad',
+          dispose: throwingDispose,
+        };
+        const throwing = throwingFake as vscode.CommentThread;
+
+        setActiveThreads([throwing]);
+        disposeAll();
+
+        expect(throwingDispose).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[review-plugin] Failed to dispose comment thread:',
+          'uninit-boom',
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

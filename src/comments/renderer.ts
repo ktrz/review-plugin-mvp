@@ -10,7 +10,7 @@ export interface RenderFindingsDeps {
 }
 
 export interface RenderFindingsResult {
-  fileThreads: vscode.CommentThread[];
+  fileThreads: readonly vscode.CommentThread[];
   skippedPrLevel: number;
 }
 

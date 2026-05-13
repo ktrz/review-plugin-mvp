@@ -28,9 +28,7 @@ export type LoadDeps = {
   disposeActiveThreads: typeof defaultDisposeActiveThreads;
 };
 
-export interface LoadExtras {
-  controller: vscode.CommentController;
-}
+export type LoadExtras = Pick<LoadDeps, 'controller'>;
 
 const PARSE_ERROR_TOAST = 'Failed to load findings — see Review Plugin output.';
 

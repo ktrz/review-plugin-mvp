@@ -1,11 +1,25 @@
 import path from 'node:path';
 import * as vscode from 'vscode';
-import type { FindingItem, Severity, Source } from '../schema';
+import type { FindingItem, Source, StatusMarker } from '../schema';
 
 export interface BuildThreadDeps {
   finding: FindingItem;
   controller: vscode.CommentController;
   workspaceRoot: string;
+}
+
+export interface BuildThreadEntryDeps {
+  finding: FindingItemWithId;
+  controller: vscode.CommentController;
+  workspaceRoot: string;
+}
+
+export type FindingItemWithId = FindingItem & { id: string };
+
+export interface ThreadEntry {
+  thread: vscode.CommentThread;
+  id: string;
+  item: FindingItemWithId;
 }
 
 export function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
@@ -29,10 +43,43 @@ export function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null 
 
   const thread = controller.createCommentThread(uri, range, [comment]);
   thread.label = `[${finding.status}] ${finding.source.severity} · ${sourceLabel}`;
-  thread.contextValue = 'review-finding';
+  thread.contextValue = contextValueForStatus(finding.status);
   thread.canReply = false;
-  thread.collapsibleState = collapsibleStateFor(finding.source.severity);
+  thread.collapsibleState = collapsibleStateForStatus(finding.status);
+  thread.state = threadStateForStatus(finding.status);
   return thread;
+}
+
+export function buildThreadEntry(deps: BuildThreadEntryDeps): ThreadEntry | null {
+  const thread = buildThread({
+    finding: deps.finding,
+    controller: deps.controller,
+    workspaceRoot: deps.workspaceRoot,
+  });
+  if (thread === null) {
+    return null;
+  }
+  return { thread, id: deps.finding.id, item: deps.finding };
+}
+
+export function contextValueForStatus(status: StatusMarker): string {
+  return `review-finding-${status}`;
+}
+
+export function threadStateForStatus(status: StatusMarker): vscode.CommentThreadState {
+  if (status === 'unresolved' || status === 'deferred') {
+    return vscode.CommentThreadState.Unresolved;
+  }
+  return vscode.CommentThreadState.Resolved;
+}
+
+export function collapsibleStateForStatus(
+  status: StatusMarker,
+): vscode.CommentThreadCollapsibleState {
+  if (status === 'unresolved' || status === 'deferred') {
+    return vscode.CommentThreadCollapsibleState.Expanded;
+  }
+  return vscode.CommentThreadCollapsibleState.Collapsed;
 }
 
 function formatSourceLabel(source: Source): string {
@@ -40,13 +87,6 @@ function formatSourceLabel(source: Source): string {
     return 'auto-review';
   }
   return `@${source.login}`;
-}
-
-function collapsibleStateFor(severity: Severity): vscode.CommentThreadCollapsibleState {
-  if (severity === 'critical' || severity === 'important') {
-    return vscode.CommentThreadCollapsibleState.Expanded;
-  }
-  return vscode.CommentThreadCollapsibleState.Collapsed;
 }
 
 function composeBody(finding: FindingItem): vscode.MarkdownString {

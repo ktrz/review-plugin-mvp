@@ -7,7 +7,11 @@ import {
   type Severity,
   type StatusMarker,
 } from '../schema';
-import { buildThread } from './thread-builder';
+import {
+  buildThread,
+  buildThreadEntry,
+  type FindingItemWithId,
+} from './thread-builder';
 
 type FakeThread = {
   uri: vscode.Uri;
@@ -17,6 +21,7 @@ type FakeThread = {
   contextValue: string;
   canReply: boolean;
   collapsibleState: vscode.CommentThreadCollapsibleState;
+  state: vscode.CommentThreadState;
   dispose: ReturnType<typeof vi.fn>;
 };
 
@@ -31,6 +36,7 @@ const makeFakeController = () => {
       contextValue: '',
       canReply: false,
       collapsibleState: vscode.CommentThreadCollapsibleState.Collapsed,
+      state: vscode.CommentThreadState.Unresolved,
       dispose: vi.fn(),
     };
     last = thread;
@@ -87,6 +93,7 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
     opts.resolution ??
     (status === 'resolved' || status === 'custom' ? 'fixed in follow-up' : '');
   return FindingItemSchema.parse({
+    id: 'test-id',
     dirty: false,
     rawSource: 'raw',
     status,
@@ -100,6 +107,9 @@ const makeFinding = (opts: MakeFindingOptions = {}): FindingItem => {
     resolution,
   });
 };
+
+const withId = (item: FindingItem, id = 'id-test'): FindingItemWithId =>
+  Object.assign({}, item, { id });
 
 describe('buildThread', () => {
   describe('location filtering', () => {
@@ -166,7 +176,7 @@ describe('buildThread', () => {
       expect(lastThread().label).toBe('[deferred] important · @alice');
     });
 
-    it('sets canReply false and contextValue review-finding', () => {
+    it('sets canReply false', () => {
       const { controller, lastThread } = makeFakeController();
       buildThread({
         finding: makeFinding(),
@@ -174,48 +184,61 @@ describe('buildThread', () => {
         workspaceRoot: '/repo',
       });
       expect(lastThread().canReply).toBe(false);
-      expect(lastThread().contextValue).toBe('review-finding');
     });
+  });
 
-    it('expands critical threads', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThread({
-        finding: makeFinding({ severity: 'critical' }),
-        controller,
-        workspaceRoot: '/repo',
-      });
-      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Expanded);
-    });
+  describe('per-status styling', () => {
+    const statuses: ReadonlyArray<{
+      status: StatusMarker;
+      contextValue: string;
+      threadState: vscode.CommentThreadState;
+      collapsible: vscode.CommentThreadCollapsibleState;
+    }> = [
+      {
+        status: 'unresolved',
+        contextValue: 'review-finding-unresolved',
+        threadState: vscode.CommentThreadState.Unresolved,
+        collapsible: vscode.CommentThreadCollapsibleState.Expanded,
+      },
+      {
+        status: 'deferred',
+        contextValue: 'review-finding-deferred',
+        threadState: vscode.CommentThreadState.Unresolved,
+        collapsible: vscode.CommentThreadCollapsibleState.Expanded,
+      },
+      {
+        status: 'resolved',
+        contextValue: 'review-finding-resolved',
+        threadState: vscode.CommentThreadState.Resolved,
+        collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
+      },
+      {
+        status: 'skipped',
+        contextValue: 'review-finding-skipped',
+        threadState: vscode.CommentThreadState.Resolved,
+        collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
+      },
+      {
+        status: 'custom',
+        contextValue: 'review-finding-custom',
+        threadState: vscode.CommentThreadState.Resolved,
+        collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
+      },
+    ];
 
-    it('expands important threads', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThread({
-        finding: makeFinding({ severity: 'important' }),
-        controller,
-        workspaceRoot: '/repo',
+    for (const variant of statuses) {
+      it(`maps status ${variant.status} → contextValue/state/collapsibleState`, () => {
+        const { controller, lastThread } = makeFakeController();
+        buildThread({
+          finding: makeFinding({ status: variant.status }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+        expect(lastThread().contextValue).toBe(variant.contextValue);
+        expect(lastThread().state).toBe(variant.threadState);
+        expect(lastThread().collapsibleState).toBe(variant.collapsible);
       });
-      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Expanded);
-    });
-
-    it('collapses suggestion threads', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThread({
-        finding: makeFinding({ severity: 'suggestion' }),
-        controller,
-        workspaceRoot: '/repo',
-      });
-      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
-    });
-
-    it('collapses nit threads', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThread({
-        finding: makeFinding({ severity: 'nit' }),
-        controller,
-        workspaceRoot: '/repo',
-      });
-      expect(lastThread().collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
-    });
+    }
   });
 
   describe('comment body composition', () => {
@@ -308,5 +331,32 @@ describe('buildThread', () => {
       });
       expect(lastThread().comments[0].author.name).toBe('@bob');
     });
+  });
+});
+
+describe('buildThreadEntry', () => {
+  it('returns thread+id+item for a file-anchored finding', () => {
+    const { controller } = makeFakeController();
+    const finding = withId(makeFinding({ file: 'src/x.ts', line: 3 }), 'uuid-1');
+    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+    expect(result).not.toBeNull();
+    if (result === null) {throw new Error('expected entry');}
+    expect(result.id).toBe('uuid-1');
+    expect(result.item).toBe(finding);
+    expect(result.thread).toBeDefined();
+  });
+
+  it('returns null when the finding is review-body anchored', () => {
+    const { controller } = makeFakeController();
+    const finding = withId(makeFinding({ locationKind: 'review-body' }), 'uuid-2');
+    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+    expect(result).toBeNull();
+  });
+
+  it('carries the finding id onto the built entry verbatim', () => {
+    const { controller } = makeFakeController();
+    const finding = withId(makeFinding(), 'the-stable-id');
+    const result = buildThreadEntry({ finding, controller, workspaceRoot: '/repo' });
+    expect(result?.id).toBe('the-stable-id');
   });
 });

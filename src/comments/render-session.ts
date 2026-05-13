@@ -3,7 +3,9 @@ import type { FindingItem } from '../schema';
 import { getOutputChannel } from '../runtime/findings-state';
 import {
   collapsibleStateForStatus,
+  composeBody,
   contextValueForStatus,
+  formatSourceLabel,
   threadStateForStatus,
   type FindingItemWithId,
   type ThreadEntry,
@@ -49,8 +51,7 @@ export function refreshThread(
     logWarning(`refreshThread called for an unregistered thread (item id ${newItem.id})`);
     return;
   }
-  const sourceLabel =
-    newItem.source.kind === 'auto-review' ? 'auto-review' : `@${newItem.source.login}`;
+  const sourceLabel = formatSourceLabel(newItem.source);
   thread.label = `[${newItem.status}] ${newItem.source.severity} · ${sourceLabel}`;
   thread.contextValue = contextValueForStatus(newItem.status);
   thread.state = threadStateForStatus(newItem.status);
@@ -138,24 +139,10 @@ function composeRefreshedComment(
   newItem: FindingItem,
   previous: vscode.Comment | undefined,
 ): vscode.Comment {
-  const sourceLabel =
-    newItem.source.kind === 'auto-review' ? 'auto-review' : `@${newItem.source.login}`;
-  const parts: string[] = [
-    `**Comment:** ${newItem.comment}`,
-    `**Analysis:** ${newItem.analysis}`,
-    `**Recommendation:** ${newItem.recommendation}`,
-  ];
-  if (newItem.options.length > 0) {
-    const bullets = newItem.options.map((opt) => `- ${opt}`).join('\n');
-    parts.push(`**Options:**\n${bullets}`);
-  }
-  const body = new vscode.MarkdownString(parts.join('\n\n'));
-  body.isTrusted = false;
-  body.supportHtml = false;
   return {
-    body,
+    body: composeBody(newItem),
     mode: previous?.mode ?? vscode.CommentMode.Preview,
-    author: { name: sourceLabel },
+    author: { name: formatSourceLabel(newItem.source) },
     contextValue: previous?.contextValue ?? 'review-finding-comment',
   };
 }

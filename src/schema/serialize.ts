@@ -65,9 +65,7 @@ function renderItem(item: FindingItem): string {
   lines.push(`**Severity:** ${item.source.severity}`);
   lines.push(`**Source:** ${item.source.kind}`);
   lines.push(`**Reported by:** ${item.reportedBy.join(', ')}`);
-  if (item.id) {
-    lines.push(`**Id:** ${item.id}`);
-  }
+  lines.push(`**Id:** ${item.id}`);
   lines.push(`**Comment:** ${item.comment}`);
   lines.push(`**Analysis:** ${item.analysis}`);
   lines.push(`**Recommendation:** ${item.recommendation}`);

@@ -109,6 +109,7 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
     deps.log.warn(
       `Thread action ${decision} ignored — thread is no longer registered.`,
     );
+    deps.showError(`Review Plugin: ${decision} could not run — the finding is no longer registered.`);
     return;
   }
 
@@ -117,11 +118,15 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
     deps.log.warn(
       `Thread action ${decision} ignored — findings state cleared mid-action.`,
     );
+    deps.showError(`Review Plugin: ${decision} could not run — findings were unloaded.`);
     return;
   }
 
   const originalLabel = thread.label;
-  thread.label = `${originalLabel}${SAVING_SUFFIX}`;
+  const isStringLabel = typeof originalLabel === 'string';
+  if (isStringLabel) {
+    thread.label = `${originalLabel}${SAVING_SUFFIX}`;
+  }
 
   try {
     const newDoc = applyDecision(state.doc, id, decision);
@@ -151,7 +156,9 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
     );
     deps.showError(`Review Plugin: failed to ${decision} finding — ${message}`);
   } finally {
-    thread.label = originalLabel;
+    if (isStringLabel) {
+      thread.label = originalLabel;
+    }
   }
 }
 

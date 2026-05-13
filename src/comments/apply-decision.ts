@@ -88,13 +88,6 @@ export function applyDecision(
     return { ...doc, items: nextItems };
   }
 
-  if (decision.kind !== 'finalizeChat') {
-    throw new ApplyDecisionError({
-      kind: 'unknown-decision',
-      decision: String((decision as { kind?: unknown }).kind),
-    });
-  }
-
   if (index === -1) {
     throw new ApplyDecisionError({ kind: 'unknown-id', findingId });
   }

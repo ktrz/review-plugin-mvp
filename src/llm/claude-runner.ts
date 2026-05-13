@@ -140,7 +140,19 @@ function runOnce(
     child.on('close', (code: number | null) => {
       settle(() => {
         if (code === 0) {
-          resolve(stdoutBuf.replace(/\n+$/, ''));
+          const output = stdoutBuf.replace(/\n+$/, '').trim();
+          if (output.length === 0) {
+            reject(
+              new ClaudeRunnerError(
+                'claude CLI returned empty output',
+                'exit',
+                stderrBuf,
+                code,
+              ),
+            );
+            return;
+          }
+          resolve(output);
           return;
         }
         const kind: ClaudeRunnerErrorKind = isAuthFailure(stderrBuf)

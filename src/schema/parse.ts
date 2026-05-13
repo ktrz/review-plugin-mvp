@@ -157,12 +157,14 @@ function finalizeItem(
   // Trim only \r and \n (preserve trailing horizontal whitespace per byte-preservation guarantee)
   const rawSource = raw.slice(item.startOffset, endOffset).replace(/[\r\n]+$/, '');
 
+  // item.reportedBy is validated non-empty above (length === 0 throws ParseError)
+  const reportedBy = item.reportedBy as [string, ...string[]];
   const finalized: FindingItem = {
     id: item.id,
     status: item.status,
     source: item.source,
     location: item.location,
-    reportedBy: item.reportedBy,
+    reportedBy,
     comment: item.comment,
     analysis: item.analysis,
     recommendation: item.recommendation,
@@ -170,10 +172,8 @@ function finalizeItem(
     resolution: item.resolution,
     rawSource,
     dirty: false,
-  } as FindingItem;
-  if (item.chat !== undefined && item.chat.length > 0) {
-    (finalized as { chat?: ChatMessage[] }).chat = item.chat;
-  }
+    ...(item.chat !== undefined && item.chat.length > 0 ? { chat: item.chat } : {}),
+  };
   out.push(finalized);
 }
 

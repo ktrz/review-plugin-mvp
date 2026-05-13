@@ -6,6 +6,7 @@ import {
   type HandoverDocument,
 } from '../schema';
 import { renderFindings } from './renderer';
+import type { ThreadEntry } from './thread-builder';
 
 const WORKSPACE = '/repo';
 
@@ -76,9 +77,15 @@ const makeFakeThread = (tag: string): vscode.CommentThread => {
   return fake as vscode.CommentThread;
 };
 
+const makeEntry = (finding: FindingItem, tag: string): ThreadEntry => ({
+  thread: makeFakeThread(tag),
+  id: finding.id,
+  item: finding,
+});
+
 describe('renderFindings', () => {
   describe('iteration and counts', () => {
-    it('builds threads only for file-kind findings and counts review-body findings as skipped', () => {
+    it('builds entries only for file-kind findings and counts review-body findings as skipped', () => {
       const findings = [
         makeFinding({ tag: 'one', locationKind: 'file' }),
         makeFinding({ tag: 'two', locationKind: 'review-body' }),
@@ -88,32 +95,32 @@ describe('renderFindings', () => {
       const doc = makeDoc(findings);
       const controller = makeFakeController();
       const builtFor: FindingItem[] = [];
-      const buildThread = vi.fn((deps: {
+      const buildThreadEntry = vi.fn((deps: {
         finding: FindingItem;
         controller: vscode.CommentController;
         workspaceRoot: string;
       }) => {
         builtFor.push(deps.finding);
-        return makeFakeThread(`thread-${builtFor.length}`);
+        return makeEntry(deps.finding, `thread-${builtFor.length}`);
       });
 
       const result = renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(result.fileThreads).toHaveLength(2);
+      expect(result.fileEntries).toHaveLength(2);
       expect(result.skippedPrLevel).toBe(2);
-      expect(buildThread).toHaveBeenCalledTimes(2);
+      expect(buildThreadEntry).toHaveBeenCalledTimes(2);
       expect(builtFor.map((f) => f.comment)).toEqual([
         'comment-one',
         'comment-three',
       ]);
     });
 
-    it('preserves doc.items order in fileThreads', () => {
+    it('preserves doc.items order in fileEntries', () => {
       const findings = [
         makeFinding({ tag: 'a', file: 'src/a.ts', line: 1 }),
         makeFinding({ tag: 'b', locationKind: 'review-body' }),
@@ -122,29 +129,29 @@ describe('renderFindings', () => {
       ];
       const doc = makeDoc(findings);
       const controller = makeFakeController();
-      const threadsByTag = new Map<string, vscode.CommentThread>();
-      const buildThread = vi.fn((deps: { finding: FindingItem }) => {
+      const entriesByTag = new Map<string, ThreadEntry>();
+      const buildThreadEntry = vi.fn((deps: { finding: FindingItem }) => {
         const tag = deps.finding.comment.replace('comment-', '');
-        const thread = makeFakeThread(tag);
-        threadsByTag.set(tag, thread);
-        return thread;
+        const entry = makeEntry(deps.finding, tag);
+        entriesByTag.set(tag, entry);
+        return entry;
       });
 
-      const { fileThreads } = renderFindings({
+      const { fileEntries } = renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(fileThreads).toEqual([
-        threadsByTag.get('a'),
-        threadsByTag.get('c'),
-        threadsByTag.get('d'),
+      expect(fileEntries).toEqual([
+        entriesByTag.get('a'),
+        entriesByTag.get('c'),
+        entriesByTag.get('d'),
       ]);
     });
 
-    it('passes controller and workspaceRoot through to buildThread, with finding from doc.items', () => {
+    it('passes controller and workspaceRoot through to buildThreadEntry, with finding from doc.items', () => {
       const finding = makeFinding({ tag: 'x', file: 'src/x.ts', line: 7 });
       const doc = makeDoc([finding]);
       const controller = makeFakeController();
@@ -153,23 +160,23 @@ describe('renderFindings', () => {
         controller: vscode.CommentController;
         workspaceRoot: string;
       }> = [];
-      const buildThread = vi.fn((args: {
+      const buildThreadEntry = vi.fn((args: {
         finding: FindingItem;
         controller: vscode.CommentController;
         workspaceRoot: string;
       }) => {
         calls.push(args);
-        return makeFakeThread('x');
+        return makeEntry(args.finding, 'x');
       });
 
       renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(buildThread).toHaveBeenCalledTimes(1);
+      expect(buildThreadEntry).toHaveBeenCalledTimes(1);
       expect(calls).toHaveLength(1);
       const callArg = calls[0];
       expect(callArg.controller).toBe(controller);
@@ -180,18 +187,18 @@ describe('renderFindings', () => {
     it('returns zero counts for an empty document', () => {
       const doc = makeDoc([]);
       const controller = makeFakeController();
-      const buildThread = vi.fn(() => makeFakeThread('unused'));
+      const buildThreadEntry = vi.fn(() => makeEntry(makeFinding({ tag: 'unused' }), 'unused'));
 
       const result = renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(result.fileThreads).toEqual([]);
+      expect(result.fileEntries).toEqual([]);
       expect(result.skippedPrLevel).toBe(0);
-      expect(buildThread).not.toHaveBeenCalled();
+      expect(buildThreadEntry).not.toHaveBeenCalled();
     });
 
     it('counts only review-body findings as skipped, never file findings', () => {
@@ -202,51 +209,51 @@ describe('renderFindings', () => {
       ];
       const doc = makeDoc(findings);
       const controller = makeFakeController();
-      const buildThread = vi.fn(() => makeFakeThread('unused'));
+      const buildThreadEntry = vi.fn(() => makeEntry(makeFinding({ tag: 'unused' }), 'unused'));
 
       const result = renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(result.fileThreads).toEqual([]);
+      expect(result.fileEntries).toEqual([]);
       expect(result.skippedPrLevel).toBe(3);
-      expect(buildThread).not.toHaveBeenCalled();
+      expect(buildThreadEntry).not.toHaveBeenCalled();
     });
   });
 
   describe('builder return-value handling', () => {
-    it('skips a finding when buildThread returns null (defensive)', () => {
+    it('skips a finding when buildThreadEntry returns null (defensive)', () => {
       const findings = [
         makeFinding({ tag: 'a', file: 'src/a.ts', line: 1 }),
         makeFinding({ tag: 'b', file: 'src/b.ts', line: 2 }),
       ];
       const doc = makeDoc(findings);
       const controller = makeFakeController();
-      const thread = makeFakeThread('b');
-      const buildThread = vi.fn((deps: { finding: FindingItem }) => {
+      const entryB = makeEntry(findings[1], 'b');
+      const buildThreadEntry = vi.fn((deps: { finding: FindingItem }) => {
         if (deps.finding.comment === 'comment-a') {
           return null;
         }
-        return thread;
+        return entryB;
       });
 
       const result = renderFindings({
         doc,
         controller,
         workspaceRoot: WORKSPACE,
-        buildThread,
+        buildThreadEntry,
       });
 
-      expect(result.fileThreads).toEqual([thread]);
+      expect(result.fileEntries).toEqual([entryB]);
       expect(result.skippedPrLevel).toBe(0);
     });
   });
 
   describe('default builder', () => {
-    it('uses the real buildThread which calls controller.createCommentThread for file findings', () => {
+    it('uses the real buildThreadEntry which calls controller.createCommentThread for file findings', () => {
       const finding = makeFinding({ tag: 'x', file: 'src/x.ts', line: 5 });
       const doc = makeDoc([finding]);
       const createCommentThread = vi.fn((_uri, _range, _comments) => {
@@ -267,7 +274,8 @@ describe('renderFindings', () => {
       });
 
       expect(createCommentThread).toHaveBeenCalledTimes(1);
-      expect(result.fileThreads).toHaveLength(1);
+      expect(result.fileEntries).toHaveLength(1);
+      expect(result.fileEntries[0].id).toBe('id-x');
       expect(result.skippedPrLevel).toBe(0);
     });
   });

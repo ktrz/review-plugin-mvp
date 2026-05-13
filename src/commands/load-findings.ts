@@ -13,7 +13,7 @@ import {
 import { renderFindings as defaultRenderFindings } from '../comments/renderer';
 import {
   disposeAll as defaultDisposeActiveThreads,
-  setActiveThreads as defaultSetActiveThreads,
+  setActiveEntries as defaultSetActiveEntries,
 } from '../comments/render-session';
 import {
   serializeDocument,
@@ -32,7 +32,7 @@ export type LoadDeps = {
   showError: (msg: string) => Thenable<string | undefined> | void;
   controller: vscode.CommentController;
   renderFindings: typeof defaultRenderFindings;
-  setActiveThreads: typeof defaultSetActiveThreads;
+  setActiveEntries: typeof defaultSetActiveEntries;
   disposeActiveThreads: typeof defaultDisposeActiveThreads;
   writer: FindingsWriter;
   generateId: () => string;
@@ -248,13 +248,13 @@ interface RenderAndLogArgs {
 function renderAndLog(args: RenderAndLogArgs): void {
   const { deps, channel, filePath, doc } = args;
   channel.appendLine(`Loaded ${doc.items.length} findings from ${filePath}.`);
-  const { fileThreads, skippedPrLevel } = deps.renderFindings({
+  const { fileEntries, skippedPrLevel } = deps.renderFindings({
     doc,
     controller: deps.controller,
     workspaceRoot: deps.workspaceRoot,
   });
-  deps.setActiveThreads(fileThreads);
-  channel.appendLine(`Rendered ${fileThreads.length} inline thread(s).`);
+  deps.setActiveEntries(fileEntries);
+  channel.appendLine(`Rendered ${fileEntries.length} inline thread(s).`);
   if (skippedPrLevel > 0) {
     channel.appendLine(
       `Skipped ${skippedPrLevel} PR-level finding(s) — inline rendering deferred to a later phase.`,
@@ -294,7 +294,7 @@ export function registerLoadFindingsCommand(
       showError: (msg) => vscode.window.showErrorMessage(msg),
       controller: extras.controller,
       renderFindings: defaultRenderFindings,
-      setActiveThreads: defaultSetActiveThreads,
+      setActiveEntries: defaultSetActiveEntries,
       disposeActiveThreads: defaultDisposeActiveThreads,
       writer: extras.writer,
       generateId: () => randomUUID(),

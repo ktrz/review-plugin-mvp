@@ -11,6 +11,7 @@ import {
 import { clearState, getState, setOutputChannel } from '../runtime/findings-state';
 import { HandoverDocumentSchema, ParseError, type HandoverDocument } from '../schema';
 import type { RenderFindingsDeps, RenderFindingsResult } from '../comments/renderer';
+import type { ThreadEntry } from '../comments/thread-builder';
 import type { FindingsWriter, WriteResult } from '../runtime/findings-writer';
 
 const WORKSPACE = '/tmp/repo';
@@ -90,6 +91,20 @@ const makeFakeThread = (label = 'fake'): vscode.CommentThread => {
   return fake as vscode.CommentThread;
 };
 
+const makeFakeEntry = (label = 'fake'): ThreadEntry => {
+  const item = HandoverDocumentSchema.parse({
+    header: {
+      prUrl: 'https://github.com/octo/repo/pull/42',
+      prNumber: 42,
+      branch: { head: { ref: 'feat/x' }, base: { ref: 'main' } },
+      generatedAt: '2026-01-01T00:00:00Z',
+      status: 'PENDING REVIEW',
+    },
+    items: [makeFindingItemInput(label)],
+  }).items[0];
+  return { thread: makeFakeThread(label), id: item.id, item };
+};
+
 type WriteSpy = ReturnType<typeof vi.fn<[string, string], Promise<WriteResult>>>;
 type GetLastShaSpy = ReturnType<typeof vi.fn<[string], string | undefined>>;
 
@@ -138,13 +153,13 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
 
   const controller = makeFakeController();
   const renderResult: RenderFindingsResult = {
-    fileThreads: [makeFakeThread('t1'), makeFakeThread('t2')],
+    fileEntries: [makeFakeEntry('t1'), makeFakeEntry('t2')],
     skippedPrLevel: 0,
   };
   const renderFindings = vi.fn(
     (_d: RenderFindingsDeps): RenderFindingsResult => renderResult,
   );
-  const setActiveThreads = vi.fn();
+  const setActiveEntries = vi.fn();
   const disposeActiveThreads = vi.fn();
   const writer = makeFakeWriter();
   const generateId = vi.fn(() => 'stamped-uuid');
@@ -161,7 +176,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     showError,
     controller,
     renderFindings: renderFindings as LoadDeps['renderFindings'],
-    setActiveThreads,
+    setActiveEntries,
     disposeActiveThreads,
     writer,
     generateId,
@@ -179,7 +194,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     loadFindingsFile,
     controller,
     renderFindings,
-    setActiveThreads,
+    setActiveEntries,
     disposeActiveThreads,
     renderResult,
     writer,
@@ -208,7 +223,7 @@ describe('loadFindingsHandler', () => {
       channel,
       watcherDispose: _wd,
       renderFindings,
-      setActiveThreads,
+      setActiveEntries,
       renderResult,
       controller,
     } = makeDeps();
@@ -235,8 +250,8 @@ describe('loadFindingsHandler', () => {
     expect(renderArgs?.controller).toBe(controller);
     expect(renderArgs?.workspaceRoot).toBe(WORKSPACE);
     expect(renderArgs?.doc).toBe(state?.doc);
-    expect(setActiveThreads).toHaveBeenCalledTimes(1);
-    expect(setActiveThreads).toHaveBeenCalledWith(renderResult.fileThreads);
+    expect(setActiveEntries).toHaveBeenCalledTimes(1);
+    expect(setActiveEntries).toHaveBeenCalledWith(renderResult.fileEntries);
 
     expect(channel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),
@@ -250,7 +265,7 @@ describe('loadFindingsHandler', () => {
   it('logs the skipped-PR-level summary when renderFindings reports skipped findings', async () => {
     const { deps, channel, renderFindings } = makeDeps();
     renderFindings.mockReturnValueOnce({
-      fileThreads: [makeFakeThread('only')],
+      fileEntries: [makeFakeEntry('only')],
       skippedPrLevel: 3,
     });
 
@@ -384,7 +399,7 @@ describe('loadFindingsHandler', () => {
       .mockResolvedValueOnce({ doc: docA, mtime: 100 })
       .mockResolvedValueOnce({ doc: docB, mtime: 200 });
 
-    const { deps, watcherCallbacks, channel, renderFindings, setActiveThreads } = makeDeps({
+    const { deps, watcherCallbacks, channel, renderFindings, setActiveEntries } = makeDeps({
       loadFindingsFile: loadFindingsFile as LoadDeps['loadFindingsFile'],
     });
 
@@ -394,7 +409,7 @@ describe('loadFindingsHandler', () => {
     const channelAppend = channel.appendLine as ReturnType<typeof vi.fn>;
     channelAppend.mockClear();
     renderFindings.mockClear();
-    setActiveThreads.mockClear();
+    setActiveEntries.mockClear();
     (deps.discoverPrNumber as ReturnType<typeof vi.fn>).mockClear();
     (deps.resolveFindingsPath as ReturnType<typeof vi.fn>).mockClear();
 
@@ -407,7 +422,7 @@ describe('loadFindingsHandler', () => {
     expect(getState()?.doc).toBe(docB);
     expect(renderFindings).toHaveBeenCalledTimes(1);
     expect(renderFindings.mock.calls[0]?.[0].doc).toBe(docB);
-    expect(setActiveThreads).toHaveBeenCalledTimes(1);
+    expect(setActiveEntries).toHaveBeenCalledTimes(1);
     expect(channelAppend).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),
     );

@@ -322,20 +322,23 @@ describe('handleThreadDecision', () => {
     expect(log.warn).toHaveBeenCalledTimes(1);
   });
 
-  it('label suffix appears during RMW and is cleared on success', async () => {
+  it('label suffix appears during RMW; refreshThread label stands after success', async () => {
     const labelsObserved: string[] = [];
-    const { deps } = makeDeps({
+    const { deps, refreshThread } = makeDeps({
       writeImpl: async () => {
         labelsObserved.push(String(thread.label));
         return { mtime: 200, sha: 'sha12345' };
       },
+    });
+    refreshThread.mockImplementation((t: vscode.CommentThread) => {
+      t.label = 'refreshed-label';
     });
     const thread = makeThread('hello');
 
     await handleThreadDecision({ thread, decision: 'post', deps });
 
     expect(labelsObserved).toEqual(['hello (saving…)']);
-    expect(thread.label).toBe('hello');
+    expect(thread.label).toBe('refreshed-label');
   });
 
   it('label suffix is cleared on failure (finally restores label)', async () => {

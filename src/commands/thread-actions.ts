@@ -127,6 +127,7 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
     thread.label = `${originalLabel}${SAVING_SUFFIX}`;
   }
 
+  let refreshed = false;
   try {
     const newDoc = applyDecision(state.doc, id, decision);
     const serialized = serializeDocument(newDoc);
@@ -145,6 +146,7 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
       return;
     }
     deps.refreshThread(thread, updatedItem);
+    refreshed = true;
     deps.log.info(
       `Thread action ${decision} applied to ${id} → status=${updatedItem.status}.`,
     );
@@ -155,7 +157,7 @@ async function runThreadDecisionLocked(args: LockedArgs): Promise<void> {
     );
     deps.showError(`Review Plugin: failed to ${decision} finding — ${message}`);
   } finally {
-    if (isStringLabel) {
+    if (isStringLabel && !refreshed) {
       thread.label = originalLabel;
     }
   }

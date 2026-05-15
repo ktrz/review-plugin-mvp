@@ -65,6 +65,24 @@ describe('createFindingsWriter', () => {
     expect(writer.getLastWriteSha('/tmp/b.md')).toBe(sha8('B'));
   });
 
+  it('sets lastWriteSha synchronously before writeFile resolves so watcher self-write check cannot race', async () => {
+    let resolveWrite: (() => void) | undefined;
+    const writeFile = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+    const stat = vi.fn(async () => ({ mtimeMs: 0 }));
+    const writer = createFindingsWriter({ writeFile, stat });
+
+    const pending = writer.write('/tmp/a.md', 'payload');
+    expect(writer.getLastWriteSha('/tmp/a.md')).toBe(sha8('payload'));
+    resolveWrite?.();
+    await pending;
+    expect(writer.getLastWriteSha('/tmp/a.md')).toBe(sha8('payload'));
+  });
+
   it('allows injecting a custom sha256 implementation', async () => {
     const writer = createFindingsWriter({
       writeFile: async () => undefined,

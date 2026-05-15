@@ -262,6 +262,22 @@ describe('loadFindingsHandler', () => {
     expect(dumped).toBe(false);
   });
 
+  it('disposes existing threads before renderFindings creates new ones so VS Code never holds both at once', async () => {
+    const { deps, disposeActiveThreads, renderFindings } = makeDeps();
+    const order: string[] = [];
+    disposeActiveThreads.mockImplementation(() => {
+      order.push('dispose');
+    });
+    renderFindings.mockImplementation(() => {
+      order.push('render');
+      return { fileEntries: [makeFakeEntry('only')], skippedPrLevel: 0 };
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(order).toEqual(['dispose', 'render']);
+  });
+
   it('logs the skipped-PR-level summary when renderFindings reports skipped findings', async () => {
     const { deps, channel, renderFindings } = makeDeps();
     renderFindings.mockReturnValueOnce({

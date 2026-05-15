@@ -253,6 +253,7 @@ interface RenderAndLogArgs {
 function renderAndLog(args: RenderAndLogArgs): void {
   const { deps, channel, filePath, doc } = args;
   channel.appendLine(`Loaded ${doc.items.length} findings from ${filePath}.`);
+  deps.disposeActiveThreads();
   const { fileEntries, skippedPrLevel } = deps.renderFindings({
     doc,
     controller: deps.controller,

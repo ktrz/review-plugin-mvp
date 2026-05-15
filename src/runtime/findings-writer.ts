@@ -29,9 +29,19 @@ export function createFindingsWriter(deps: FindingsWriterDeps = {}): FindingsWri
   return {
     async write(filePath, serialized) {
       const sha = sha256(serialized);
-      await writeFile(filePath, serialized);
-      const s = await stat(filePath);
+      const previous = lastShaByPath.get(filePath);
       lastShaByPath.set(filePath, sha);
+      try {
+        await writeFile(filePath, serialized);
+      } catch (err) {
+        if (previous === undefined) {
+          lastShaByPath.delete(filePath);
+        } else {
+          lastShaByPath.set(filePath, previous);
+        }
+        throw err;
+      }
+      const s = await stat(filePath);
       return { mtime: s.mtimeMs, sha };
     },
     getLastWriteSha(filePath) {

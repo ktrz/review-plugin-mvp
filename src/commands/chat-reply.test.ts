@@ -215,6 +215,48 @@ describe('createChatReplyHandler', () => {
     expect(h.completeSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('reply on non-deferred status auto-promotes status to deferred before appending chat', async () => {
+    const initial = makeItem({ status: 'unresolved' });
+    const h = makeHarness({ initialItem: initial });
+    const handler = createChatReplyHandler(h.deps);
+    const thread = makeThread();
+
+    await handler({ thread, text: 'wait, reopen this' });
+
+    const stateAfterUserWrite = h.setState.mock.calls[0]?.[0] as LoadedFindings;
+    const itemAfterUser = stateAfterUserWrite.doc.items[0];
+    expect(itemAfterUser.status).toBe('deferred');
+    expect(itemAfterUser.chat).toEqual([
+      { role: 'user', content: 'wait, reopen this' },
+    ] satisfies ChatMessage[]);
+
+    const earlyRefreshArg = h.refreshThread.mock.calls[0]?.[1] as FindingItem;
+    expect(earlyRefreshArg.status).toBe('deferred');
+  });
+
+  it('reply on already-deferred status keeps status (no spurious mutation)', async () => {
+    const h = makeHarness();
+    const handler = createChatReplyHandler(h.deps);
+    const thread = makeThread();
+
+    await handler({ thread, text: 'continuing' });
+
+    const stateAfterUserWrite = h.setState.mock.calls[0]?.[0] as LoadedFindings;
+    expect(stateAfterUserWrite.doc.items[0].status).toBe('deferred');
+  });
+
+  it('reply on resolved status re-opens to deferred (terminal → deferred)', async () => {
+    const initial = makeItem({ status: 'resolved', resolution: 'done' });
+    const h = makeHarness({ initialItem: initial });
+    const handler = createChatReplyHandler(h.deps);
+    const thread = makeThread();
+
+    await handler({ thread, text: 'actually, hold on' });
+
+    const stateAfterUserWrite = h.setState.mock.calls[0]?.[0] as LoadedFindings;
+    expect(stateAfterUserWrite.doc.items[0].status).toBe('deferred');
+  });
+
   it('CLI ENOENT → 1 write (user only), placeholder replaced with error marker, toast called', async () => {
     const runImpl = async () => {
       throw new ClaudeRunnerError('not found', 'enoent', '', null);

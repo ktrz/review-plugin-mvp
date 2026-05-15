@@ -177,24 +177,23 @@ describe('buildThreadEntry', () => {
       expect(lastThread().label).toBe('[deferred] important · @alice');
     });
 
-    it('sets canReply false for unresolved status', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThreadEntry({
-        finding: makeFinding({ status: 'unresolved' }),
-        controller,
-        workspaceRoot: '/repo',
-      });
-      expect(lastThread().canReply).toBe(false);
-    });
-
-    it('sets canReply true for deferred status (chat enabled)', () => {
-      const { controller, lastThread } = makeFakeController();
-      buildThreadEntry({
-        finding: makeFinding({ status: 'deferred' }),
-        controller,
-        workspaceRoot: '/repo',
-      });
-      expect(lastThread().canReply).toBe(true);
+    it('sets canReply true for every status (reply auto-promotes status)', () => {
+      const statuses: StatusMarker[] = [
+        'unresolved',
+        'deferred',
+        'resolved',
+        'skipped',
+        'custom',
+      ];
+      for (const status of statuses) {
+        const { controller, lastThread } = makeFakeController();
+        buildThreadEntry({
+          finding: makeFinding({ status }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+        expect(lastThread().canReply).toBe(true);
+      }
     });
   });
 
@@ -211,7 +210,7 @@ describe('buildThreadEntry', () => {
         contextValue: 'review-finding-unresolved',
         threadState: vscode.CommentThreadState.Unresolved,
         collapsible: vscode.CommentThreadCollapsibleState.Expanded,
-        canReply: false,
+        canReply: true,
       },
       {
         status: 'deferred',
@@ -225,21 +224,21 @@ describe('buildThreadEntry', () => {
         contextValue: 'review-finding-resolved',
         threadState: vscode.CommentThreadState.Resolved,
         collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
-        canReply: false,
+        canReply: true,
       },
       {
         status: 'skipped',
         contextValue: 'review-finding-skipped',
         threadState: vscode.CommentThreadState.Resolved,
         collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
-        canReply: false,
+        canReply: true,
       },
       {
         status: 'custom',
         contextValue: 'review-finding-custom',
         threadState: vscode.CommentThreadState.Resolved,
         collapsible: vscode.CommentThreadCollapsibleState.Collapsed,
-        canReply: false,
+        canReply: true,
       },
     ];
 

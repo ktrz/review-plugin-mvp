@@ -241,15 +241,14 @@ describe('render-session', () => {
       expect(e.thread.contextValue).toBe('review-finding-resolved');
       expect(e.thread.state).toBe(vscode.CommentThreadState.Resolved);
       expect(e.thread.collapsibleState).toBe(vscode.CommentThreadCollapsibleState.Collapsed);
-      expect(e.thread.canReply).toBe(false);
+      expect(e.thread.canReply).toBe(true);
       expect(e.thread.label).toBe('[resolved] critical · auto-review');
       expect(findThreadById('id-r')?.item).toBe(updatedItem);
     });
 
-    it('sets canReply true when status transitions to deferred (so chat reply is enabled)', () => {
+    it('keeps canReply true across status transitions (reply auto-promotes status)', () => {
       const e = makeEntry('id-d', { status: 'unresolved' });
       setActiveEntries([e]);
-      expect(e.thread.canReply).toBe(false);
 
       const updatedItem = makeItem('id-d', { status: 'deferred' });
       refreshThread(e.thread, updatedItem);

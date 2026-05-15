@@ -52,8 +52,8 @@ function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
   return thread;
 }
 
-export function canReplyForStatus(status: StatusMarker): boolean {
-  return status === 'deferred';
+export function canReplyForStatus(_status: StatusMarker): boolean {
+  return true;
 }
 
 export function buildThreadEntry(deps: BuildThreadEntryDeps): ThreadEntry | null {

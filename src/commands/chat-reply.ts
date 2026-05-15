@@ -6,6 +6,7 @@ import {
   type FindingItem,
   type HandoverDocument,
 } from '../schema';
+import { applyDecision } from '../comments/apply-decision';
 import type { LoadedFindings } from '../runtime/findings-state';
 import type { FindingsWriter } from '../runtime/findings-writer';
 import {
@@ -105,7 +106,8 @@ async function runChatReply(deps: ChatReplyDeps, args: ChatReplyArgs): Promise<v
       if (state === null) {
         throw new Error('findings state cleared mid-chat-reply');
       }
-      const newDoc = appendChat(state.doc, id, { role: 'user', content: text });
+      const docAfterStatus = ensureDeferred(state.doc, id);
+      const newDoc = appendChat(docAfterStatus, id, { role: 'user', content: text });
       const serialized = serializeDocument(newDoc);
       const { mtime, sha } = await deps.writer.write(filePath, serialized);
       const next: LoadedFindings = {
@@ -140,6 +142,7 @@ async function runChatReply(deps: ChatReplyDeps, args: ChatReplyArgs): Promise<v
   }
 
   const placeholder = createPlaceholderComment();
+  deps.refreshThread(thread, itemAfterUser);
   deps.renderChat(thread, itemAfterUser, { getAuthorLabel: deps.getAuthorLabel });
   appendPlaceholder(thread, placeholder);
 
@@ -254,6 +257,14 @@ function cloneMessage(m: ChatMessage): ChatMessage {
 
 function findItem(doc: HandoverDocument, id: string): FindingItem | undefined {
   return doc.items.find((it) => it.id === id);
+}
+
+function ensureDeferred(doc: HandoverDocument, id: string): HandoverDocument {
+  const current = findItem(doc, id);
+  if (current === undefined || current.status === 'deferred') {
+    return doc;
+  }
+  return applyDecision(doc, id, 'discuss');
 }
 
 function createPlaceholderComment(): vscode.Comment {

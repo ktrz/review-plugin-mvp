@@ -13,6 +13,7 @@ import { HandoverDocumentSchema, ParseError, type HandoverDocument } from '../sc
 import type { RenderFindingsDeps, RenderFindingsResult } from '../comments/renderer';
 import type { ThreadEntry } from '../comments/thread-builder';
 import type { FindingsWriter, WriteResult } from '../runtime/findings-writer';
+import type { ShaCheckResult } from '../git/sha-check';
 
 const WORKSPACE = '/tmp/repo';
 
@@ -166,6 +167,13 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
   const readFile = vi.fn(async (_p: string) => 'disk-bytes');
   const sha256 = vi.fn((_d: string) => 'disk-sha8');
 
+  const showWarning = vi.fn(async () => undefined as string | undefined);
+  const checkHeadSha = vi.fn(async (): Promise<ShaCheckResult> => ({
+    kind: 'match',
+    sha: 'a'.repeat(40),
+  }));
+  const getShaCheckMode = vi.fn(() => 'warn');
+
   const deps: LoadDeps = {
     workspaceRoot: WORKSPACE,
     discoverPrNumber: vi.fn(async () => 42),
@@ -174,6 +182,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     createFindingsWatcher: createFindingsWatcher as LoadDeps['createFindingsWatcher'],
     getOutputChannel: () => channel,
     showError,
+    showWarning,
     controller,
     renderFindings: renderFindings as LoadDeps['renderFindings'],
     setActiveEntries,
@@ -182,6 +191,8 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     generateId,
     readFile,
     sha256,
+    checkHeadSha: checkHeadSha as LoadDeps['checkHeadSha'],
+    getShaCheckMode,
     ...overrides,
   };
 
@@ -190,6 +201,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     watcherDispose,
     watcherCallbacks,
     showError,
+    showWarning,
     channel,
     loadFindingsFile,
     controller,
@@ -201,6 +213,8 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     generateId,
     readFile,
     sha256,
+    checkHeadSha,
+    getShaCheckMode,
   };
 }
 
@@ -626,6 +640,139 @@ describe('loadFindingsHandler', () => {
     expect(channel.appendLine).toHaveBeenCalledWith(
       'Findings file deleted — state cleared.',
     );
+  });
+});
+
+describe('SHA check integration', () => {
+  const SHA_DOC = 'aaaa'.repeat(10);
+  const SHA_HEAD = 'bbbb'.repeat(10);
+
+  beforeEach(() => {
+    clearState();
+    __resetActiveWatcherForTests();
+    setOutputChannel(makeChannel());
+  });
+
+  afterEach(() => {
+    disposeActiveWatcher();
+    clearState();
+    __resetActiveWatcherForTests();
+  });
+
+  it('match: logs info line, no warning toast, render proceeds', async () => {
+    const { deps, channel, showWarning, renderFindings } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'match',
+      sha: SHA_DOC,
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(showWarning).not.toHaveBeenCalled();
+    expect(channel.appendLine).toHaveBeenCalledWith('Head SHA matches workspace.');
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+  });
+
+  it('mismatch: shows exact toast with short SHAs and pr number, logs full SHAs, render proceeds', async () => {
+    const { deps, channel, showWarning, renderFindings } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'mismatch',
+      docSha: SHA_DOC,
+      headSha: SHA_HEAD,
+    });
+    showWarning.mockResolvedValue(undefined);
+
+    await loadFindingsHandler(deps);
+
+    expect(showWarning).toHaveBeenCalledWith(
+      `Workspace at ${SHA_HEAD.slice(0, 8)}, doc generated at ${SHA_DOC.slice(0, 8)}. Run: gh pr checkout 42`,
+      'Copy command',
+    );
+    expect(channel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining(SHA_DOC),
+    );
+    expect(channel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining(SHA_HEAD),
+    );
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+  });
+
+  it('mismatch: clicking Copy command writes clipboard', async () => {
+    const { deps, showWarning } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'mismatch',
+      docSha: SHA_DOC,
+      headSha: SHA_HEAD,
+    });
+    showWarning.mockResolvedValue('Copy command');
+
+    await loadFindingsHandler(deps);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith('gh pr checkout 42');
+  });
+
+  it('unreachable: shows distinct toast, render proceeds', async () => {
+    const { deps, channel, showWarning, renderFindings } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'unreachable',
+      docSha: SHA_DOC,
+      headSha: SHA_HEAD,
+    });
+    showWarning.mockResolvedValue(undefined);
+
+    await loadFindingsHandler(deps);
+
+    expect(showWarning).toHaveBeenCalledWith(
+      `Doc head SHA ${SHA_DOC.slice(0, 8)} not in local refs. Run: gh pr checkout 42 (will fetch).`,
+      'Copy command',
+    );
+    expect(channel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining(SHA_DOC),
+    );
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+  });
+
+  it('unknown/doc-missing-sha: no toast, one info channel line, render proceeds', async () => {
+    const { deps, channel, showWarning, renderFindings } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'unknown',
+      reason: 'doc-missing-sha',
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(showWarning).not.toHaveBeenCalled();
+    expect(channel.appendLine).toHaveBeenCalledWith(
+      'Doc has no Head SHA field; SHA check skipped.',
+    );
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+  });
+
+  it('unknown/workspace-not-repo: no toast, one info channel line, render proceeds', async () => {
+    const { deps, channel, showWarning, renderFindings } = makeDeps();
+    (deps.checkHeadSha as ReturnType<typeof vi.fn>).mockResolvedValue({
+      kind: 'unknown',
+      reason: 'workspace-not-repo',
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(showWarning).not.toHaveBeenCalled();
+    expect(channel.appendLine).toHaveBeenCalledWith(
+      'Workspace is not a git repository or git is unavailable; SHA check skipped.',
+    );
+    expect(renderFindings).toHaveBeenCalledTimes(1);
+  });
+
+  it('shaCheck.mode off: checkHeadSha not called', async () => {
+    const { deps, checkHeadSha } = makeDeps({
+      getShaCheckMode: vi.fn(() => 'off'),
+    });
+
+    await loadFindingsHandler(deps);
+
+    expect(checkHeadSha).not.toHaveBeenCalled();
   });
 });
 

@@ -22,6 +22,7 @@ import {
   type HandoverDocument,
 } from '../schema';
 import type { FindingsWriter } from '../runtime/findings-writer';
+import { checkHeadSha as defaultCheckHeadSha, shortSha, type ShaCheckResult } from '../git/sha-check';
 
 export type LoadDeps = {
   workspaceRoot: string;
@@ -31,6 +32,7 @@ export type LoadDeps = {
   createFindingsWatcher: typeof defaultCreateFindingsWatcher;
   getOutputChannel: () => vscode.OutputChannel;
   showError: (msg: string) => Thenable<string | undefined> | void;
+  showWarning: (msg: string, ...items: string[]) => Thenable<string | undefined>;
   controller: vscode.CommentController;
   renderFindings: typeof defaultRenderFindings;
   setActiveEntries: typeof defaultSetActiveEntries;
@@ -39,6 +41,8 @@ export type LoadDeps = {
   generateId: () => string;
   readFile: (filePath: string) => Promise<string>;
   sha256: (data: string) => string;
+  checkHeadSha: typeof defaultCheckHeadSha;
+  getShaCheckMode: () => string;
 };
 
 export type LoadExtras = Pick<LoadDeps, 'controller' | 'writer'>;
@@ -82,6 +86,14 @@ export async function loadFindingsHandler(deps: LoadDeps): Promise<void> {
     contextLabel: 'load',
   });
   if (loaded === null) {return;}
+
+  if (deps.getShaCheckMode() !== 'off') {
+    const shaResult = await deps.checkHeadSha({
+      workspaceRoot: deps.workspaceRoot,
+      docHeadSha: loaded.doc.header.branch.head.sha,
+    });
+    handleShaResult(shaResult, { deps, channel, prNumber });
+  }
 
   const stamped = await stampAndPersist({
     deps,
@@ -268,6 +280,57 @@ function renderAndLog(args: RenderAndLogArgs): void {
   }
 }
 
+interface HandleShaResultArgs {
+  deps: LoadDeps;
+  channel: vscode.OutputChannel;
+  prNumber: number;
+}
+
+function handleShaResult(
+  result: ShaCheckResult,
+  { deps, channel, prNumber }: HandleShaResultArgs,
+): void {
+  const checkoutCmd = `gh pr checkout ${prNumber}`;
+  switch (result.kind) {
+    case 'match':
+      channel.appendLine('Head SHA matches workspace.');
+      break;
+    case 'mismatch':
+      channel.appendLine(
+        `Head SHA mismatch — doc: ${result.docSha}, workspace: ${result.headSha}`,
+      );
+      deps.showWarning(
+        `Workspace at ${shortSha(result.headSha)}, doc generated at ${shortSha(result.docSha)}. Run: ${checkoutCmd}`,
+        'Copy command',
+      ).then((choice) => {
+        if (choice === 'Copy command') {
+          void vscode.env.clipboard.writeText(checkoutCmd);
+        }
+      }, () => undefined);
+      break;
+    case 'unreachable':
+      channel.appendLine(
+        `Head SHA unreachable — doc: ${result.docSha}, workspace: ${result.headSha}`,
+      );
+      deps.showWarning(
+        `Doc head SHA ${shortSha(result.docSha)} not in local refs. Run: ${checkoutCmd} (will fetch).`,
+        'Copy command',
+      ).then((choice) => {
+        if (choice === 'Copy command') {
+          void vscode.env.clipboard.writeText(checkoutCmd);
+        }
+      }, () => undefined);
+      break;
+    case 'unknown':
+      if (result.reason === 'doc-missing-sha') {
+        channel.appendLine('Doc has no Head SHA field; SHA check skipped.');
+      } else {
+        channel.appendLine('Workspace is not a git repository or git is unavailable; SHA check skipped.');
+      }
+      break;
+  }
+}
+
 function formatError(err: unknown): string {
   if (err instanceof Error) {
     const extras = Object.entries(err)
@@ -298,6 +361,7 @@ export function registerLoadFindingsCommand(
       createFindingsWatcher: defaultCreateFindingsWatcher,
       getOutputChannel: defaultGetOutputChannel,
       showError: (msg) => vscode.window.showErrorMessage(msg),
+      showWarning: (msg, ...items) => vscode.window.showWarningMessage(msg, ...items),
       controller: extras.controller,
       renderFindings: defaultRenderFindings,
       setActiveEntries: defaultSetActiveEntries,
@@ -306,6 +370,9 @@ export function registerLoadFindingsCommand(
       generateId: () => randomUUID(),
       readFile: (p) => fsReadFile(p, 'utf8'),
       sha256: defaultLoadShaSha256,
+      checkHeadSha: defaultCheckHeadSha,
+      getShaCheckMode: () =>
+        vscode.workspace.getConfiguration('reviewPlugin').get('shaCheck.mode') ?? 'warn',
     };
     await loadFindingsHandler(deps);
   };

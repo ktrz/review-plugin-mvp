@@ -127,6 +127,12 @@
           },
           "default": [],
           "description": "Extra argv appended after `-p` when invoking the claude CLI."
+        },
+        "reviewPlugin.shaCheck.mode": {
+          "type": "string",
+          "enum": ["warn", "off"],
+          "default": "warn",
+          "description": "How to handle a Head SHA mismatch between the loaded findings doc and the workspace's git HEAD."
         }
       }
     }

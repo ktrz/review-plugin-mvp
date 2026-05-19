@@ -119,6 +119,33 @@ describe('round-trip — parse → serialize → parse', () => {
     });
   });
 
+  describe('multi-line Comment round-trip', () => {
+    it('parse → serialize → parse preserves multi-line Comment value', () => {
+      const item = doc1.items[0]; // auto-review item with multi-line comment in fixture
+      const dirtyItem: FindingItem = { ...item, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
+      const mutatedDoc = { ...doc1, items: doc1.items.map((it, idx) => idx === 0 ? dirtyItem : it) };
+      const serialized = serializeDocument(mutatedDoc);
+      const reparsed = parseDocument(serialized);
+      expect(reparsed.items[0].comment).toBe(item.comment);
+    });
+
+    it('serialize dirty item emits <external_data> fence for auto-review source', () => {
+      const item = doc1.items[0]; // auto-review
+      const dirtyItem: FindingItem = { ...item, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
+      const mutatedDoc = { ...doc1, items: doc1.items.map((it, idx) => idx === 0 ? dirtyItem : it) };
+      const serialized = serializeDocument(mutatedDoc);
+      expect(serialized).toContain('<external_data source="auto_review_finding" trust="untrusted">');
+    });
+
+    it('serialize dirty item emits <external_data> fence for reviewer source', () => {
+      const item = doc1.items[1]; // reviewer:@alice — single-line back-compat in fixture
+      const dirtyItem: FindingItem = { ...item, dirty: true, options: [...item.options], reportedBy: [...item.reportedBy] };
+      const mutatedDoc = { ...doc1, items: doc1.items.map((it, idx) => idx === 1 ? dirtyItem : it) };
+      const serialized = serializeDocument(mutatedDoc);
+      expect(serialized).toContain('<external_data source="github_pr_comment" trust="untrusted">');
+    });
+  });
+
   describe('withResolution integration', () => {
     it('markResolved sets Resolution field in serialized output', () => {
       const item = doc1.items[0];

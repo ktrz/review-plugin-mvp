@@ -44,6 +44,7 @@ type ParserStateValue =
   | { state: 'IN_HEADER' }
   | { state: 'BETWEEN_ITEMS' }
   | { state: 'IN_ITEM_FIELDS'; item: ActiveItem }
+  | { state: 'IN_COMMENT'; item: ActiveItem; fenceOpen: boolean; bodyLines: string[] }
   | { state: 'IN_OPTIONS'; item: ActiveItem }
   | { state: 'IN_CHAT'; item: ActiveItem }
   | { state: 'IN_RESOLUTION'; item: ActiveItem };
@@ -123,10 +124,26 @@ const KNOWN_ITEM_FIELDS = new Set([
 const CHAT_BULLET_RE = /^- ([a-zA-Z]+): (.*)$/;
 const CHAT_CONTINUATION_RE = /^  (.*)$/;
 
+const EXTERNAL_DATA_OPEN_RE = /^<external_data\s+(?:[^>]*\s)?trust="untrusted"(?:\s[^>]*)?>$/;
+const EXTERNAL_DATA_ANY_OPEN_RE = /^<external_data(?:\s[^>]*)?>$/;
+const EXTERNAL_DATA_CLOSE_RE = /^<\/external_data>$/;
+
 function handleItemBoundary(line: string): 'separator' | 'new-heading' | null {
   if (line.trim() === '---') { return 'separator'; }
   if (line.startsWith('## [')) { return 'new-heading'; }
   return null;
+}
+
+function flushCommentBody(bodyLines: string[], offset: number, lineNum: number): string {
+  let start = 0;
+  while (start < bodyLines.length && bodyLines[start].trim() === '') { start++; }
+  let end = bodyLines.length;
+  while (end > start && bodyLines[end - 1].trim() === '') { end--; }
+  const body = bodyLines.slice(start, end).join('\n');
+  if (!body) {
+    throw new ParseError('Comment block is empty', offset, 'IN_COMMENT', lineNum);
+  }
+  return body;
 }
 
 function finalizeItem(
@@ -446,6 +463,8 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
           } else if (key === 'Resolution') {
             sv.item.resolution = value;
             sv = { state: 'IN_RESOLUTION', item: sv.item };
+          } else if (key === 'Comment' && value === '') {
+            sv = { state: 'IN_COMMENT', item: sv.item, fenceOpen: false, bodyLines: [] };
           } else {
             applyField(sv.item, key, value, lineOffset, lineNum, 'IN_ITEM_FIELDS');
           }
@@ -457,6 +476,53 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
           );
         }
         // Blank lines are allowed (skip)
+      }
+    }
+
+    else if (sv.state === 'IN_COMMENT') {
+      const trimmed = line.trimEnd();
+      // Destructure after narrowing; CFA can't track the union through the loop so annotate explicitly
+      const commentItem: ActiveItem = sv.item;
+      const fenceOpen: boolean = sv.fenceOpen;
+      const bodyLines: string[] = sv.bodyLines;
+      if (EXTERNAL_DATA_OPEN_RE.test(trimmed)) {
+        sv = { state: 'IN_COMMENT', item: commentItem, fenceOpen: true, bodyLines };
+      } else if (EXTERNAL_DATA_ANY_OPEN_RE.test(trimmed)) {
+        throw new ParseError(
+          'Malformed external_data fence: missing trust="untrusted"',
+          lineOffset, 'IN_COMMENT', lineNum,
+        );
+      } else if (EXTERNAL_DATA_CLOSE_RE.test(trimmed)) {
+        sv = { state: 'IN_COMMENT', item: commentItem, fenceOpen: false, bodyLines };
+      } else if (!fenceOpen) {
+        const boundary = handleItemBoundary(line);
+        if (boundary !== null) {
+          commentItem.comment = flushCommentBody(bodyLines, lineOffset, lineNum);
+          sv = transitionOnBoundary(boundary, commentItem, line, raw, lineOffset, lineNum, 'IN_COMMENT', items);
+        } else {
+          const fieldMatch = FIELD_RE.exec(line);
+          if (fieldMatch) {
+            const key = fieldMatch[1].trim();
+            const value = fieldMatch[2].trim();
+            commentItem.comment = flushCommentBody(bodyLines, lineOffset, lineNum);
+            if (key === 'Options') {
+              sv = { state: 'IN_OPTIONS', item: commentItem };
+            } else if (key === 'Chat') {
+              commentItem.chat = [];
+              sv = { state: 'IN_CHAT', item: commentItem };
+            } else if (key === 'Resolution') {
+              commentItem.resolution = value;
+              sv = { state: 'IN_RESOLUTION', item: commentItem };
+            } else {
+              applyField(commentItem, key, value, lineOffset, lineNum, 'IN_COMMENT');
+              sv = { state: 'IN_ITEM_FIELDS', item: commentItem };
+            }
+          } else {
+            bodyLines.push(line);
+          }
+        }
+      } else {
+        bodyLines.push(line);
       }
     }
 
@@ -554,7 +620,10 @@ export function parseDocument(raw: string): Readonly<HandoverDocument> {
   }
 
   // Finalize the last item if still open
-  if (sv.state === 'IN_ITEM_FIELDS' || sv.state === 'IN_OPTIONS' || sv.state === 'IN_CHAT' || sv.state === 'IN_RESOLUTION') {
+  if (sv.state === 'IN_COMMENT') {
+    sv.item.comment = flushCommentBody(sv.bodyLines, offset, lines.length);
+    finalizeItem(sv.item, raw, offset, items);
+  } else if (sv.state === 'IN_ITEM_FIELDS' || sv.state === 'IN_OPTIONS' || sv.state === 'IN_CHAT' || sv.state === 'IN_RESOLUTION') {
     finalizeItem(sv.item, raw, offset, items);
   }
 

@@ -58,6 +58,11 @@ function renderItemHeading(item: FindingItem): string {
   return `## [${markerChar}] ${sourceTag} — ${location}`;
 }
 
+function renderComment(item: FindingItem): string {
+  const source = item.source.kind === 'reviewer' ? 'github_pr_comment' : 'auto_review_finding';
+  return `**Comment:**\n\n<external_data source="${source}" trust="untrusted">\n${item.comment}\n</external_data>`;
+}
+
 function renderChatBlock(chat: ChatMessage[], lines: string[]): void {
   lines.push('**Chat:**');
   for (const msg of chat) {
@@ -77,7 +82,7 @@ function renderItem(item: FindingItem): string {
   lines.push(`**Source:** ${item.source.kind}`);
   lines.push(`**Reported by:** ${item.reportedBy.join(', ')}`);
   lines.push(`**Id:** ${item.id}`);
-  lines.push(`**Comment:** ${item.comment}`);
+  lines.push(renderComment(item));
   lines.push(`**Analysis:** ${item.analysis}`);
   lines.push(`**Recommendation:** ${item.recommendation}`);
   lines.push('**Options:**');

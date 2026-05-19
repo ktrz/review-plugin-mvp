@@ -15,7 +15,12 @@
 **Severity:** critical
 **Source:** auto-review
 **Reported by:** auto-review
-**Comment:** The `handleRequest` function does not validate the Authorization header before passing raw user input to downstream handlers, allowing empty token strings to propagate.
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+The `handleRequest` function does not validate the Authorization header before passing raw user input to downstream handlers, allowing empty token strings to propagate.
+</external_data>
+
 **Analysis:** A missing or empty Bearer token results in an empty string being passed to `createPost`, `updatePost`, and `deletePost`. The downstream API client forwards the request with `Authorization: Bearer ` which some servers accept as anonymous.
 **Recommendation:** Validate that the token is non-empty before dispatching to authenticated routes. Return 401 immediately if missing.
 **Options:**
@@ -45,7 +50,12 @@
 **Severity:** important
 **Source:** auto-review
 **Reported by:** auto-review
-**Comment:** The `request` helper swallows JSON parse errors with `.catch(() => ...)`, silently substituting a generic error object. This makes diagnosing server-side errors very difficult.
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+The `request` helper swallows JSON parse errors with `.catch(() => ...)`, silently substituting a generic error object. This makes diagnosing server-side errors very difficult.
+</external_data>
+
 **Analysis:** When `res.json()` throws (e.g. server returns HTML error page), the catch clause produces `{ code: 'UNKNOWN', message: res.statusText }` which loses all diagnostic information from the response body.
 **Recommendation:** Log the raw response text before falling back, or re-throw as a structured error with the raw body attached.
 **Options:**
@@ -60,7 +70,12 @@
 **Severity:** critical
 **Source:** auto-review
 **Reported by:** auto-review, @alice
-**Comment:** Unauthenticated DELETE endpoint exposes destructive operation without authorization check. Same root location as item 1.
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+Unauthenticated DELETE endpoint exposes destructive operation without authorization check. Same root location as item 1.
+</external_data>
+
 **Analysis:** The DELETE handler extracts the token exactly as POST/PATCH do — if the token is empty the delete proceeds. Combined with the missing auth validation this allows unauthenticated deletes.
 **Recommendation:** Same fix as item 1 — apply `requireAuth` middleware to all mutating routes.
 **Options:**
@@ -76,7 +91,12 @@
 **Severity:** suggestion
 **Source:** auto-review
 **Reported by:** auto-review
-**Comment:** `BASE_URL` is read from `process.env` at module load time, preventing runtime reconfiguration and making the module hard to test in isolation.
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+`BASE_URL` is read from `process.env` at module load time, preventing runtime reconfiguration and making the module hard to test in isolation.
+</external_data>
+
 **Analysis:** Module-level constant evaluation means tests must set the environment variable before importing, which can cause ordering issues in test suites.
 **Recommendation:** Accept `baseUrl` as a parameter to a factory function or export a `configure` function.
 **Options:**
@@ -91,7 +111,12 @@
 **Severity:** nit
 **Source:** reviewer
 **Reported by:** @alice
-**Comment:** `User.createdAt` is typed as `Date` but the API returns ISO strings. This will silently be a string at runtime unless explicit parsing is applied.
+**Comment:**
+
+<external_data source="github_pr_comment" trust="untrusted">
+`User.createdAt` is typed as `Date` but the API returns ISO strings. This will silently be a string at runtime unless explicit parsing is applied.
+</external_data>
+
 **Analysis:** TypeScript's type system cannot enforce JSON parse coercion — callers that use `createdAt` as a `Date` will get a string at runtime. This is a latent bug.
 **Recommendation:** Either type as `string` and parse at the call site, or use a DTO/domain split pattern.
 **Options:**

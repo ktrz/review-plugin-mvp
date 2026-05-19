@@ -1036,7 +1036,7 @@ describe('parseDocument — custom status with empty resolution', () => {
   });
 });
 
-describe('parseDocument — empty comment value', () => {
+describe('parseDocument — empty comment value (no fence, no body)', () => {
   const raw = makeDoc({
     prNumber: 24,
     sourceCounts: '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
@@ -1057,14 +1057,15 @@ describe('parseDocument — empty comment value', () => {
 `,
   });
 
-  it('throws ParseError wrapping ZodError', () => {
+  it('throws ParseError with message about empty comment block', () => {
     try {
       parseDocument(raw);
       throw new Error('expected parseDocument to throw');
     } catch (e) {
       expect(e).toBeInstanceOf(ParseError);
       if (e instanceof ParseError) {
-        expect(e.message).toContain('Schema validation failed');
+        expect(e.message).toContain('Comment block is empty');
+        expect(e.state).toBe('IN_COMMENT');
       }
     }
   });
@@ -1226,6 +1227,293 @@ ${chatBlock}**Resolution:**
         expect(e.offset).toBe(badLineOffset);
       }
     }
+  });
+});
+
+describe('parseDocument — IN_COMMENT state: multi-line external_data', () => {
+  function makeCommentDoc(commentBlock: string, prNumber = 50): string {
+    return `# PR Review Handover: #${prNumber}
+
+**PR:** https://github.com/example/repo/pull/${prNumber}
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 1 important, 0 suggestion/nit)
+
+---
+
+## [?] auto:important — src/foo.ts:1
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+${commentBlock}
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`;
+  }
+
+  it('parses Comment fenced with external_data trust="untrusted"', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="github_pr_comment" trust="untrusted">\nThe fix is wrong.\n</external_data>',
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('The fix is wrong.');
+  });
+
+  it('parses Comment with code fence (triple backtick) inside external_data', () => {
+    const body = '```typescript\nconst x = 1;\n```';
+    const raw = makeCommentDoc(
+      `**Comment:**\n\n<external_data source="github_pr_comment" trust="untrusted">\n${body}\n</external_data>`,
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe(body);
+  });
+
+  it('parses Comment with multiple paragraphs inside fence', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="auto_review_finding" trust="untrusted">\nFirst paragraph.\n\nSecond paragraph.\n</external_data>',
+      51,
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('First paragraph.\n\nSecond paragraph.');
+  });
+
+  it('drops leading and trailing blank lines from body', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="auto_review_finding" trust="untrusted">\n\nBody line.\n\n</external_data>',
+      52,
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('Body line.');
+  });
+
+  it('parses single-line Comment (legacy back-compat)', () => {
+    const raw = makeCommentDoc('**Comment:** Legacy single-line comment.', 53);
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('Legacy single-line comment.');
+  });
+
+  it('throws ParseError on Comment fence missing trust="untrusted"', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="github_pr_comment">\nbody\n</external_data>',
+      54,
+    );
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toBe('Malformed external_data fence: missing trust="untrusted"');
+        expect(e.state).toBe('IN_COMMENT');
+      }
+    }
+  });
+
+  it('throws ParseError on bare <external_data> without attributes', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data>\nbody\n</external_data>',
+      55,
+    );
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toBe('Malformed external_data fence: missing trust="untrusted"');
+        expect(e.state).toBe('IN_COMMENT');
+      }
+    }
+  });
+
+  it('throws ParseError on empty Comment block (fence present but empty body)', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="auto_review_finding" trust="untrusted">\n</external_data>',
+      56,
+    );
+    try {
+      parseDocument(raw);
+      throw new Error('expected parseDocument to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ParseError);
+      if (e instanceof ParseError) {
+        expect(e.message).toBe('Comment block is empty');
+        expect(e.state).toBe('IN_COMMENT');
+      }
+    }
+  });
+
+  it('transitions IN_COMMENT → IN_OPTIONS on **Options:**', () => {
+    const raw = `# PR Review Handover: #57
+
+**PR:** https://github.com/example/repo/pull/57
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 1 important, 0 suggestion/nit)
+
+---
+
+## [?] auto:important — src/foo.ts:1
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+The body.
+</external_data>
+
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+- Option A: do this.
+- Option B: do that.
+**Resolution:**
+
+---
+`;
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('The body.');
+    expect(doc.items[0].options).toEqual(['Option A: do this.', 'Option B: do that.']);
+  });
+
+  it('transitions IN_COMMENT → IN_RESOLUTION on **Resolution:**', () => {
+    const raw = `# PR Review Handover: #58
+
+**PR:** https://github.com/example/repo/pull/58
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 1 important, 0 suggestion/nit)
+
+---
+
+## [x] auto:important — src/foo.ts:1
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+The body.
+</external_data>
+
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:** Done and dusted.
+
+---
+`;
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('The body.');
+    expect(doc.items[0].resolution).toBe('Done and dusted.');
+    expect(doc.items[0].status).toBe('resolved');
+  });
+
+  it('handles --- separator from IN_COMMENT (early-terminate boundary)', () => {
+    const raw = `# PR Review Handover: #59
+
+**PR:** https://github.com/example/repo/pull/59
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 1 auto-review findings, 0 human reviewer comments, 1 total (0 critical, 1 important, 0 suggestion/nit)
+
+---
+
+## [?] auto:important — src/foo.ts:1
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+Body.
+</external_data>
+
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+
+---
+`;
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('Body.');
+  });
+
+  it('handles ## [ heading from IN_COMMENT (early-terminate boundary)', () => {
+    const raw = `# PR Review Handover: #60
+
+**PR:** https://github.com/example/repo/pull/60
+**Branch:** feat/ok → main
+**Generated:** 2024-01-01T00:00:00Z
+**Status:** PENDING REVIEW
+**Source counts:** 2 auto-review findings, 0 human reviewer comments, 2 total (0 critical, 2 important, 0 suggestion/nit)
+
+---
+
+## [?] auto:important — src/foo.ts:1
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:**
+
+<external_data source="auto_review_finding" trust="untrusted">
+Item one body.
+</external_data>
+
+**Analysis:** A1.
+**Recommendation:** R1.
+**Options:**
+**Resolution:**
+
+## [?] auto:important — src/foo.ts:2
+
+**Severity:** important
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Second item.
+**Analysis:** A2.
+**Recommendation:** R2.
+**Options:**
+**Resolution:**
+
+---
+`;
+    const doc = parseDocument(raw);
+    expect(doc.items).toHaveLength(2);
+    expect(doc.items[0].comment).toBe('Item one body.');
+    expect(doc.items[1].comment).toBe('Second item.');
+  });
+
+  it('multiple external_data fences in one Comment — both stripped, bodies concatenated', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data source="auto_review_finding" trust="untrusted">\nFirst fence body.\n</external_data>\n\n<external_data source="auto_review_finding" trust="untrusted">\nSecond fence body.\n</external_data>',
+      61,
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('First fence body.\n\nSecond fence body.');
+  });
+
+  it('trust="untrusted" with source attribute after trust is valid', () => {
+    const raw = makeCommentDoc(
+      '**Comment:**\n\n<external_data trust="untrusted" source="github_pr_comment">\nBody.\n</external_data>',
+      62,
+    );
+    const doc = parseDocument(raw);
+    expect(doc.items[0].comment).toBe('Body.');
   });
 });
 

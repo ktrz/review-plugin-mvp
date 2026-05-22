@@ -43,6 +43,10 @@ describe('buildPrompt', () => {
       "You are reviewing a single code review finding with the user.
       Only this finding; do not bring up other findings.
       Use Read or Grep tools if the seed hunk below is insufficient.
+      Discussion only: do NOT edit, write, or modify any files.
+      Do NOT call Edit, Write, NotebookEdit, or any code-changing tool, and do NOT run shell commands that mutate the workspace.
+      Do NOT apply, stage, or commit fixes — even if the user asks. If asked to fix, explain the change in prose and stop.
+      Decisions are recorded later by the user via the plugin (decision log); your job is to analyze, weigh options, and recommend.
 
       ## Finding
       - File: src/foo.ts:42

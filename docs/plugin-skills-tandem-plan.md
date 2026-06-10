@@ -162,11 +162,8 @@ terminal so the skill's confirmation gates stay with the user:
 Skills-side first, plugin rendering after. Direct lift from
 `FINDINGS-AND-WORKFLOW.md`:
 
-1. **`see-also` cross-links** (the cheap win): cluster findings by
-   `(file, symbol)` at aggregation time, emit `**See also:**` per item;
-   plugin renders links in thread bodies. First real instance of the
-   relationship metadata `CLAUDE.md` promises — typed edges (`same-fix`,
-   `same-root-cause`, …) follow as a classification pass later.
+1. **Relationships** (`see-also` → typed edges) — expanded below; the
+   connective tissue for Q, A, B, D3, and `execute-review-decisions`.
 2. **`Evidence:` blocks**: pre-flight checks in `review-pr` (prior-art grep,
    infra-exists, callers, sibling scan), gated on severity/category;
    recommendation chosen *after* evidence. Plugin renders evidence folded.
@@ -177,6 +174,58 @@ Skills-side first, plugin rendering after. Direct lift from
    `Chat:`/`Resolution:` into the doc; the plugin then merely renders what A
    already supports).
 
+### D1 in detail — relationships
+
+`CLAUDE.md` promises `relationships: [{ id, type }]` with
+`type ∈ same-fix | same-root-cause | dependent | conflicting | same-pattern`,
+but nothing produces, stores, or consumes them today.
+
+**Prerequisite — identity moves upstream.** Edges reference item IDs, but IDs
+are currently minted by the *plugin* at load time (`src/schema/stamp.ts`
+stamps missing IDs); the pipeline writes docs with no stable identity.
+Before any edge can exist, `review-pr`/`investigate-pr-comments` must stamp
+IDs when writing the doc (`handover-format.md` gains the id field as
+required-on-write), with `stamp.ts` retained as a fallback for legacy or
+hand-written docs.
+
+**Producer.** Per the repo's three-concerns split, relationship inference is
+review-agent work (out-of-process, frozen output) — never plugin runtime:
+
+- `review-pr` aggregation (Step 8): mechanical candidate generation by
+  `(file, symbol/proximity)` clustering, then an LLM classification pass
+  over candidate pairs to assign types. `same-pattern` and `same-fix` fall
+  out of clustering nearly free; `same-root-cause`, `dependent`,
+  `conflicting` need the classification pass.
+- `investigate-pr-comments` merge step: cross-source edges (auto finding ↔
+  human comment on the same code) — it already detects these overlaps for
+  its `**Note:** also flagged by` annotation; typing the edge is the same
+  work, kept instead of discarded.
+
+**Contract.** Per-item `**Related:**` block in `handover-format.md`
+(`- same-fix: <id> (file:line)`); plugin side `relationships: [{id, type}]`
+on `FindingItemBase`, parser/serializer + round-trip tests. Optional field —
+old docs parse unchanged. Parser must tolerate dangling edge targets (items
+can be hand-deleted from the doc).
+
+**Consumers — what each edge type buys, mapped to the plan:**
+
+| Edge | Consumer | Effect |
+|---|---|---|
+| any | Q (chat digest) | digest becomes *targeted*: related items' decisions inlined verbatim instead of a global decided-items list — the bounded context `CLAUDE.md` specifies (`hunk + comment + relationships + thread`) |
+| `same-fix` | thread actions; `execute-review-decisions` | deciding one offers to subsume siblings; executor groups the cluster into one commit |
+| `same-pattern` | thread actions; D3/PLAN.md loop | batch-decision offer ("apply to all 4?"); a `same-pattern` edge to an already-decided item = the durable-precedent signal that makes a taste call *medium* instead of *low* confidence |
+| `same-root-cause` | A (overview), navigation | cluster-grouped TLDR ("12 findings in 7 clusters"); jump between related threads |
+| `dependent` | thread ordering | sort/visit order hint |
+| `conflicting` | decision guard | warn when both sides are marked `[x]` before execute |
+
+**Sequencing within D1.** Two stages, deliberately: **D1a** — upstream ID
+stamping + untyped `see-also` edges + plugin parse/render + targeted Q
+digest (the plumbing is the expensive part, and it's shared). **D1b** — the
+typing pass, consumed conservatively at first (display + digest only);
+auto-subsume and batch decisions are enabled only after observed edge
+precision justifies letting edges drive decisions. The PLAN.md loop consumes
+edges for cluster-at-once discussion and precedent matching once D1b exists.
+
 ## Sequencing
 
 | Phase | Work | Size | Depends on |
@@ -185,7 +234,7 @@ Skills-side first, plugin rendering after. Direct lift from
 | 1 | A — overview doc, review-body rendering, PR chat, summary contract | M | — |
 | 2 | B — manual threads + `manual` source contract | M | — (parallel with 1 after schema variant agreed) |
 | 3 | C — pipeline triggering | M | — (independent; C2 trivially benefits from 1's TLDR) |
-| 4 | D1 see-also (S), D2 evidence (M), D3 confidence/TLDR (M) | S+M+M | D3 renders into A's surface |
+| 4 | D1a ids + see-also (M), D1b typed edges (M), D2 evidence (M), D3 confidence/TLDR (M) | 4×M | D1a before D1b; D3 renders into A's surface |
 | 5 | Adversarial discussion loop per `PLAN.md` | L | A, D |
 
 Phases 1–3 are independent enough to interleave; recommended order of landing
@@ -212,3 +261,7 @@ B is the biggest day-to-day friction relief.
    creation (cost/latency) vs. on demand. Recommended: on-demand command +
    setting to enable auto.
 6. **`CLAUDE.md` drift**: correct the relationships claim until D1 lands.
+7. **Edge quality gates edge power.** A misclassified `same-fix` edge that
+   auto-subsumes a decision is worse than no edge. Consume edges as
+   display/context first (D1a/D1b), and let them drive decisions
+   (subsume/batch/conflict-block) only after precision is observed in use.

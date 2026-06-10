@@ -37,6 +37,36 @@ notes; the plugin has a TODO at `src/llm/prompt-builder.ts:21`. Workstream D
 instantiates the first real piece of it (`see-also`); until then `CLAUDE.md`
 overstates the schema and should be corrected.
 
+## Quick win Q — give the chat agent the decisions doc → cross-decision comparison
+
+Friction: asking one thread to "compare against the decision we made on X"
+requires pasting the doc path manually — the agent doesn't know the chat
+originates from a handover doc.
+
+The persona already grants Read/Grep access (`prompt-builder.ts:14`), so the
+agent *can* read the doc; it lacks the path. Three small changes in
+`prompt-builder.ts` + its caller (`chat-reply.ts`):
+
+1. Pass `filePath` (already on `LoadedFindings`) into `BuildPromptInput` and
+   render: "This finding is item N of the review decisions document at
+   `<path>`; Read it if the user references other findings or decisions."
+2. Reword the persona line `'Only this finding; do not bring up other
+   findings.'` (`prompt-builder.ts:13`) — as written it *fights* the
+   comparison use case even when the path is supplied. New intent: don't
+   volunteer other findings unprompted, but consult the doc when the user
+   asks to compare against another decision.
+3. Include a compact inline digest of already-decided items (`file:line —
+   [x]/[~] — one-line resolution`): the parsed doc is already in memory, the
+   digest is cheap, and it answers "didn't we decide this above?" without a
+   tool round-trip. The path covers anything the digest omits.
+
+Untrusted comment bodies in the doc remain fenced on disk
+(`<external_data …>`), so an agent Read preserves the trust boundary.
+
+Independent of all workstreams below; can ship first. Partially supersedes
+the TODO at `prompt-builder.ts:21` until D1's typed relationships land —
+D1's `see-also` links later make the digest targeted instead of global.
+
 ## Workstream A — PR-level surface (summary + general threads) → R3
 
 The pivotal design choice: render PR-level content as a **virtual read-only
@@ -151,6 +181,7 @@ Skills-side first, plugin rendering after. Direct lift from
 
 | Phase | Work | Size | Depends on |
 |---|---|---|---|
+| 0 | Q — decisions-doc context in chat prompt | S | — |
 | 1 | A — overview doc, review-body rendering, PR chat, summary contract | M | — |
 | 2 | B — manual threads + `manual` source contract | M | — (parallel with 1 after schema variant agreed) |
 | 3 | C — pipeline triggering | M | — (independent; C2 trivially benefits from 1's TLDR) |

@@ -241,6 +241,65 @@ Phases 1–3 are independent enough to interleave; recommended order of landing
 is A → B → C because A creates the surface everything later renders into, and
 B is the biggest day-to-day friction relief.
 
+## Dependencies between tasks
+
+Hard dependencies (order is forced):
+
+1. **Schema-home decision (#17) gates every contract-touching item.**
+   `ktrz/skills` vendors a byte-for-byte copy of this repo's parser
+   (`_shared/handover-validator/`, pinned to a commit) and validates docs
+   before emitting. So each contract change — A's `## Summary`, B's `manual`
+   source, D1a's IDs + `Related:`, D2's `Evidence:`, D3's confidence — is a
+   three-step dance: plugin parser/serializer change → skills writer change
+   → vendored-validator re-pin. Either settle #17's schema home (shared
+   package vs monorepo vs vendor+freshness) **before** the contract-heavy
+   workstreams, or consciously batch the field additions into as few
+   re-pin rounds as possible (A+B+D1a fields in one round is feasible).
+2. **B's creation flow is a prerequisite for A's last piece.** "New
+   PR-level threads on the overview doc" (A.5) and "manual threads on file
+   lines" (B.2) are the same mechanism: empty thread + first reply → new
+   `manual` item. Build it once in B; A.1–A.4 (render, chat, summary) don't
+   need it and can land first, but A is only *complete* after B's creation
+   machinery exists.
+3. **P0 external-edit RMW race blocks C3.** `resolve-pr-comments
+   --from-doc` writes decisions into the findings doc **while the plugin
+   has it loaded with live threads** — exactly the external-edit-during-RMW
+   race flagged as a P0 known limitation. Today the race needs a human
+   editing the file at the wrong moment; C3 makes a concurrent external
+   writer routine. Land the pre-write disk-sha check + watcher-reload-joins-
+   `runExclusive` fix before shipping C3 (and before C2 to the extent the
+   executor ever writes back).
+4. **D1a → D1b → edge-driven UI.** Upstream ID stamping + untyped edges
+   (plumbing) before the typing pass; typed edges displayed before they
+   drive anything (auto-subsume, batch apply, conflict guard).
+5. **A → D3 → adversarial loop.** D3's confidence sorting and TLDR render
+   into A's overview surface; the PLAN.md loop needs both (it writes
+   `Chat:`/`Resolution:` that A renders, sorted by D3's confidence).
+   D1b feeds the loop's precedent matching but is enhancing, not blocking.
+
+Soft dependencies (cheaper in this order, not forced):
+
+- **Q before A's PR chat** — both extend `prompt-builder`; Q's
+  doc-path + digest plumbing is what A's PR-level prompt variant reuses.
+  (D1b later turns Q's global digest into a targeted one.)
+- **P0 CLI preflight before C1** — once the plugin spawns multi-minute
+  pipeline jobs, failing at activation beats failing mid-run.
+- **Build C1's pipeline-runner on `--output-format stream-json` from day
+  one** — P0 streaming is planned for chat anyway; don't build the job
+  runner blocking and convert it later.
+- **Batch B's `manual` tag with D1a's ID/`Related:` fields** if they land
+  near each other — one parser + vendored-validator round instead of two.
+
+```
+#17 schema home ──────────┐ (gates all contract changes)
+                          ▼
+Q ──────────────► A.1–4 ──► D3 ──► PLAN.md loop
+                  ▲   ▲            ▲
+B (creation flow)─┘   │            │
+P0 RMW fix ──► C3     │   D1a ──► D1b
+P0 preflight ─► C1 ───┘ (auto-load feeds A)
+```
+
 ## Risks & open questions
 
 1. **Headless skill invocation is unverified.** `claude -p "/review-pr N

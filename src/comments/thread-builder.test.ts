@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import {
   FindingItemSchema,
@@ -10,6 +10,16 @@ import {
 import {
   buildThreadEntry,
 } from './thread-builder';
+import {
+  clearPersonaIcons,
+  setPersonaIcons,
+  type PersonaIcons,
+} from './persona-icons';
+import {
+  cachedRoundAvatar,
+  clearAvatarCache,
+  ensureRoundAvatar,
+} from './avatar-cache';
 
 type FakeThread = {
   uri: vscode.Uri;
@@ -256,6 +266,32 @@ describe('buildThreadEntry', () => {
         expect(lastThread().canReply).toBe(variant.canReply);
       });
     }
+
+    it('suffixes -chatting when a deferred finding loads with persisted chat', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({
+          status: 'deferred',
+          chat: [{ role: 'user', content: 'why two links?' }],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().contextValue).toBe('review-finding-deferred-chatting');
+    });
+
+    it('does not suffix -chatting for non-deferred statuses with chat', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({
+          status: 'unresolved',
+          chat: [{ role: 'user', content: 'hi' }],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().contextValue).toBe('review-finding-unresolved');
+    });
   });
 
   describe('comment body composition', () => {
@@ -284,6 +320,7 @@ describe('buildThreadEntry', () => {
       expect(md.value).toContain('- opt two');
       expect(md.isTrusted).toBe(false);
       expect(md.supportHtml).toBe(false);
+      expect(md.supportThemeIcons).toBe(true);
     });
 
     it('omits Options block when options array is empty', () => {
@@ -347,6 +384,123 @@ describe('buildThreadEntry', () => {
         workspaceRoot: '/repo',
       });
       expect(lastThread().comments[0].author.name).toBe('@bob');
+    });
+  });
+
+  describe('pretty styling', () => {
+    it('leaves author iconPath undefined when persona icons are not configured', () => {
+      clearPersonaIcons();
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ sourceKind: 'auto-review' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].author.iconPath).toBeUndefined();
+    });
+
+    it('uses the auto-review persona icon when configured', () => {
+      const icons: PersonaIcons = {
+        autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
+        user: vscode.Uri.file('/ext/media/avatar-user.svg'),
+        agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
+      };
+      setPersonaIcons(icons);
+      try {
+        const { controller, lastThread } = makeFakeController();
+        buildThreadEntry({
+          finding: makeFinding({ sourceKind: 'auto-review' }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+        expect(lastThread().comments[0].author.iconPath).toBe(icons.autoReview);
+      } finally {
+        clearPersonaIcons();
+      }
+    });
+
+    it('uses the GitHub avatar URL for a reviewer regardless of persona icons', () => {
+      clearPersonaIcons();
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ sourceKind: 'reviewer', login: 'alice' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const iconPath = lastThread().comments[0].author.iconPath as vscode.Uri;
+      expect(iconPath.toString()).toBe('https://github.com/alice.png?size=48');
+    });
+
+    describe('iconForSource — cached round avatar hit', () => {
+      beforeEach(() => clearAvatarCache());
+      afterEach(() => { vi.unstubAllGlobals(); });
+
+      it('uses the cached circular avatar URI when cachedRoundAvatar is populated', async () => {
+        const PNG_BYTES = Uint8Array.from([137, 80, 78, 71, 1, 2, 3, 4]);
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => PNG_BYTES.buffer.slice(0),
+        })));
+        await ensureRoundAvatar('alice');
+        const cachedUri = cachedRoundAvatar('alice');
+        expect(cachedUri).toBeDefined();
+
+        const { controller, lastThread } = makeFakeController();
+        buildThreadEntry({
+          finding: makeFinding({ sourceKind: 'reviewer', login: 'alice' }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+
+        expect(lastThread().comments[0].author.iconPath).toBe(cachedUri);
+      });
+    });
+
+    it('sets comment label to the severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'important' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].label).toBe('important');
+    });
+
+    it('prefixes body sections with codicons matching severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'critical' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(error) **Comment:**');
+      expect(md.value).toContain('$(search) **Analysis:**');
+      expect(md.value).toContain('$(lightbulb) **Recommendation:**');
+      expect(md.value).toContain('$(list-unordered) **Options:**');
+    });
+
+    it('uses warning codicon for important severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'important' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(warning) **Comment:**');
+    });
+
+    it('uses info codicon for nit severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'nit' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(info) **Comment:**');
     });
   });
 

@@ -97,6 +97,7 @@ describe('activate', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
+      extensionUri: vscode.Uri.file('/test-ext'),
     } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
 
     activate(context);
@@ -117,6 +118,7 @@ describe('activate', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
+      extensionUri: vscode.Uri.file('/test-ext'),
     } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
     activate(context);
 
@@ -139,6 +141,7 @@ describe('activate', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
+      extensionUri: vscode.Uri.file('/test-ext'),
     } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
     activate(context);
 
@@ -156,6 +159,7 @@ describe('activate', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
+      extensionUri: vscode.Uri.file('/test-ext'),
     } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
 
     activate(context);
@@ -173,6 +177,7 @@ describe('activate', () => {
     const subscriptions: vscode.Disposable[] = [];
     const context = {
       subscriptions,
+      extensionUri: vscode.Uri.file('/test-ext'),
     } as Partial<vscode.ExtensionContext> as vscode.ExtensionContext;
 
     activate(context);

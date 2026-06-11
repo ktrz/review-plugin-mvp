@@ -15,6 +15,11 @@ import {
 } from '../runtime/chat-session';
 import { ClaudeRunnerError } from '../llm/claude-runner';
 import { renderChat } from '../comments/chat-renderer';
+import {
+  setPersonaIcons,
+  clearPersonaIcons,
+  type PersonaIcons,
+} from '../comments/persona-icons';
 
 const FILE_PATH = '/tmp/repo/pr-1-auto-review.md';
 const FINDING_ID = 'F-001';
@@ -213,6 +218,47 @@ describe('createChatReplyHandler', () => {
     expect(h.renderChat).toHaveBeenCalled();
     expect(h.startSpy).toHaveBeenCalledTimes(1);
     expect(h.completeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('thinking placeholder carries the agent persona avatar', async () => {
+    const icons: PersonaIcons = {
+      autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
+      user: vscode.Uri.file('/ext/media/avatar-user.svg'),
+      agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
+    };
+    setPersonaIcons(icons);
+    try {
+      const thread = makeThread();
+      let placeholderIcon: unknown = 'unset';
+      const runImpl = async () => {
+        placeholderIcon = thread.comments.at(-1)?.author.iconPath;
+        return 'agent reply';
+      };
+      const h = makeHarness({ runImpl });
+      const handler = createChatReplyHandler(h.deps);
+
+      await handler({ thread, text: 'why?' });
+
+      expect(placeholderIcon).toBe(icons.agent);
+    } finally {
+      clearPersonaIcons();
+    }
+  });
+
+  it('thinking placeholder has undefined iconPath when persona icons are not configured', async () => {
+    clearPersonaIcons();
+    const thread = makeThread();
+    let placeholderIcon: unknown = 'unset';
+    const runImpl = async () => {
+      placeholderIcon = thread.comments.at(-1)?.author.iconPath;
+      return 'agent reply';
+    };
+    const h = makeHarness({ runImpl });
+    const handler = createChatReplyHandler(h.deps);
+
+    await handler({ thread, text: 'why?' });
+
+    expect(placeholderIcon).toBeUndefined();
   });
 
   it('reply on non-deferred status auto-promotes status to deferred before appending chat', async () => {

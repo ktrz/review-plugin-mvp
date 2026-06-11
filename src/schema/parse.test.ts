@@ -1556,3 +1556,90 @@ describe('parseDocument — unknown field alongside Id', () => {
     }
   });
 });
+
+describe('parseDocument — markdown-escaped file paths in headings', () => {
+  const autoItem = (fileToken: string): string =>
+    makeDoc({
+      prNumber: 99,
+      sourceCounts:
+        '1 auto-review findings, 0 human reviewer comments, 1 total (1 critical, 0 important, 0 suggestion/nit)',
+      body: `---
+
+## [?] auto:critical — ${fileToken}
+
+**Severity:** critical
+**Source:** auto-review
+**Reported by:** auto-review
+**Comment:** Something.
+**Analysis:** Analysis.
+**Recommendation:** Fix.
+**Options:**
+**Resolution:**
+
+---
+`,
+    });
+
+  it('unescapes a leading-underscore segment (\\_shared/x.ts → _shared/x.ts)', () => {
+    const doc = parseDocument(autoItem('\\_shared/x.ts:5'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('_shared/x.ts');
+      expect(loc.line).toBe(5);
+    }
+  });
+
+  it('leaves a normal path unchanged (no escapes)', () => {
+    const doc = parseDocument(autoItem('src/router.ts:42'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('src/router.ts');
+      expect(loc.line).toBe(42);
+    }
+  });
+
+  it('unescapes multiple escaped punctuation chars in one path', () => {
+    const doc = parseDocument(autoItem('\\_shared\\_util.ts:1'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('_shared_util.ts');
+    }
+  });
+
+  it('unescapes non-underscore CommonMark punctuation (e.g. escaped dot)', () => {
+    const doc = parseDocument(autoItem('src\\/x\\.ts:5'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('src/x.ts');
+    }
+  });
+
+  it('leaves review-body items untouched', () => {
+    const raw = makeDoc({
+      prNumber: 99,
+      sourceCounts:
+        '0 auto-review findings, 1 human reviewer comments, 1 total (0 critical, 0 important, 1 suggestion/nit)',
+      body: `---
+
+## [?] reviewer:@bob — review body
+
+**Severity:** suggestion
+**Source:** reviewer
+**Reported by:** @bob
+**Comment:** A comment.
+**Analysis:** Some analysis.
+**Recommendation:** Some rec.
+**Options:**
+**Resolution:**
+
+---
+`,
+    });
+    const doc = parseDocument(raw);
+    expect(doc.items[0].location.kind).toBe('review-body');
+  });
+});

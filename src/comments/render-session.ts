@@ -4,12 +4,14 @@ import {
   canReplyForStatus,
   collapsibleStateForStatus,
   composeBody,
-  contextValueForStatus,
+  contextValueForFinding,
   formatSourceLabel,
+  iconForSource,
   threadStateForStatus,
   type ThreadEntry,
 } from './thread-builder';
 import { renderChat } from './chat-renderer';
+import { ensureRoundAvatar } from './avatar-cache';
 import type { FindingItem } from '../schema';
 
 interface RegistryEntry {
@@ -49,7 +51,7 @@ export function refreshThread(
   }
   const sourceLabel = formatSourceLabel(newItem.source);
   thread.label = `[${newItem.status}] ${newItem.source.severity} · ${sourceLabel}`;
-  thread.contextValue = computeContextValue(newItem);
+  thread.contextValue = contextValueForFinding(newItem);
   thread.state = threadStateForStatus(newItem.status);
   thread.collapsibleState = collapsibleStateForStatus(newItem.status);
   thread.canReply = canReplyForStatus(newItem.status);
@@ -58,14 +60,6 @@ export function refreshThread(
     renderChat(thread, newItem, { getAuthorLabel: () => undefined });
   }
   idToEntry.set(id, { thread, item: newItem });
-}
-
-function computeContextValue(item: FindingItem): string {
-  const base = contextValueForStatus(item.status);
-  if (item.status === 'deferred' && (item.chat?.length ?? 0) > 0) {
-    return `${base}-chatting`;
-  }
-  return base;
 }
 
 export interface ReconcileDeps {
@@ -121,6 +115,56 @@ export function getActiveThreads(): readonly vscode.CommentThread[] {
   return activeThreads;
 }
 
+// Non-blocking: the square avatar is shown until each fetch resolves; failures leave the square one in place.
+export async function upgradeReviewerAvatars(
+  entries: readonly ThreadEntry[],
+): Promise<void> {
+  const reviewerCount = entries.filter((e) => e.item.source.kind === 'reviewer').length;
+  let failureCount = 0;
+  let lastError = '';
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.item.source.kind !== 'reviewer') {
+        return;
+      }
+      const login = entry.item.source.login;
+      try {
+        const uri = await ensureRoundAvatar(login);
+        if (uri !== undefined) {
+          applyFindingIcon(entry.id, login, uri);
+        }
+      } catch (err) {
+        failureCount++;
+        const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+        lastError = detail;
+        logWarning(`Could not load rounded avatar for @${login}: ${detail}`);
+      }
+    }),
+  );
+  if (reviewerCount > 0 && failureCount === reviewerCount) {
+    logWarning(`All ${reviewerCount} reviewer avatar fetch(es) failed. Last error: ${lastError}`);
+  }
+}
+
+function applyFindingIcon(id: string, login: string, iconPath: vscode.Uri): void {
+  const entry = idToEntry.get(id);
+  if (entry === undefined) {
+    return;
+  }
+  if (entry.item.source.kind !== 'reviewer' || entry.item.source.login !== login) {
+    return;
+  }
+  const comments = entry.thread.comments;
+  const finding = comments[0];
+  if (finding === undefined) {
+    return;
+  }
+  entry.thread.comments = [
+    { ...finding, author: { ...finding.author, iconPath } },
+    ...comments.slice(1),
+  ];
+}
+
 function disposeOne(thread: vscode.CommentThread): void {
   try {
     thread.dispose();
@@ -150,7 +194,8 @@ function composeRefreshedComment(
   return {
     body: composeBody(newItem),
     mode: previous?.mode ?? vscode.CommentMode.Preview,
-    author: { name: formatSourceLabel(newItem.source) },
+    author: { name: formatSourceLabel(newItem.source), iconPath: iconForSource(newItem.source) },
+    label: newItem.source.severity,
     contextValue: previous?.contextValue ?? 'review-finding-comment',
   };
 }

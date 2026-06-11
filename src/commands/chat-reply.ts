@@ -17,6 +17,7 @@ import { ClaudeRunnerError, type ClaudeRunner } from '../llm/claude-runner';
 import type { HunkLoader, HunkLoadResult } from '../llm/hunk-loader';
 import type { BuildPromptInput } from '../llm/prompt-builder';
 import type { RenderChatDeps } from '../comments/chat-renderer';
+import { personaIconPath } from '../comments/persona-icons';
 
 export const CHAT_SEND_COMMAND_ID = 'reviewPlugin.chat.send';
 
@@ -271,7 +272,7 @@ function createPlaceholderComment(): vscode.Comment {
   return {
     body: new vscode.MarkdownString(PLACEHOLDER_BODY),
     mode: vscode.CommentMode.Preview,
-    author: { name: PLACEHOLDER_AUTHOR },
+    author: { name: PLACEHOLDER_AUTHOR, iconPath: personaIconPath('agent') },
     contextValue: 'review-chat-placeholder',
   };
 }

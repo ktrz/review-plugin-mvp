@@ -7,4 +7,5 @@ esbuild.js
 **/*.map
 **/*.ts
 !dist/**
+!media/**
 node_modules/**

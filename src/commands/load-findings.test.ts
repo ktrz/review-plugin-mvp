@@ -161,6 +161,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     (_d: RenderFindingsDeps): RenderFindingsResult => renderResult,
   );
   const setActiveEntries = vi.fn();
+  const upgradeReviewerAvatars = vi.fn(async () => undefined);
   const disposeActiveThreads = vi.fn();
   const writer = makeFakeWriter();
   const generateId = vi.fn(() => 'stamped-uuid');
@@ -186,6 +187,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     controller,
     renderFindings: renderFindings as LoadDeps['renderFindings'],
     setActiveEntries,
+    upgradeReviewerAvatars,
     disposeActiveThreads,
     writer,
     generateId,
@@ -207,6 +209,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     controller,
     renderFindings,
     setActiveEntries,
+    upgradeReviewerAvatars,
     disposeActiveThreads,
     renderResult,
     writer,
@@ -238,6 +241,7 @@ describe('loadFindingsHandler', () => {
       watcherDispose: _wd,
       renderFindings,
       setActiveEntries,
+      upgradeReviewerAvatars,
       renderResult,
       controller,
     } = makeDeps();
@@ -266,6 +270,7 @@ describe('loadFindingsHandler', () => {
     expect(renderArgs?.doc).toBe(state?.doc);
     expect(setActiveEntries).toHaveBeenCalledTimes(1);
     expect(setActiveEntries).toHaveBeenCalledWith(renderResult.fileEntries);
+    expect(upgradeReviewerAvatars).toHaveBeenCalledWith(renderResult.fileEntries);
 
     expect(channel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),

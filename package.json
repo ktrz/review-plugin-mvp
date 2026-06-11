@@ -144,6 +144,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "package": "vsce package",
+    "install:local": "npm run compile && vsce package --allow-missing-repository -o review-plugin-mvp-local.vsix && code --install-extension review-plugin-mvp-local.vsix",
     "vscode:prepublish": "node esbuild.js --production"
   },
   "devDependencies": {

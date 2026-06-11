@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ChatMessage, FindingItem } from '../schema';
+import { personaIconPath } from './persona-icons';
 
 export interface RenderChatDeps {
   getAuthorLabel: () => string | undefined;
@@ -37,11 +38,15 @@ export function renderChat(
 }
 
 function toComment(message: ChatMessage, userLabel: string): vscode.Comment {
-  const authorName = message.role === 'assistant' ? 'Review Agent' : userLabel;
+  const isAssistant = message.role === 'assistant';
+  const authorName = isAssistant ? 'Review Agent' : userLabel;
+  const iconPath = personaIconPath(isAssistant ? 'agent' : 'user');
+  const body = new vscode.MarkdownString(message.content);
+  body.supportThemeIcons = true;
   return {
-    body: new vscode.MarkdownString(message.content),
+    body,
     mode: vscode.CommentMode.Preview,
-    author: { name: authorName },
+    author: { name: authorName, iconPath },
     contextValue: `review-chat-${message.role}`,
   };
 }

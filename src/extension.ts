@@ -13,6 +13,7 @@ import {
   registerLoadFindingsCommand,
 } from './commands/load-findings';
 import { createFindingsController } from './comments/controller';
+import { createPersonaIcons, setPersonaIcons } from './comments/persona-icons';
 import {
   disposeAll as disposeActiveThreads,
   findIdByThread as defaultFindIdByThread,
@@ -57,6 +58,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const channel = vscode.window.createOutputChannel('Review Plugin');
   setOutputChannel(channel);
   context.subscriptions.push(channel);
+
+  setPersonaIcons(createPersonaIcons(context.extensionUri));
 
   const controller = createFindingsController();
   context.subscriptions.push(controller);

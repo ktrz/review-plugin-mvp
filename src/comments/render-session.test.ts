@@ -10,7 +10,7 @@ import {
   setActiveEntries,
   upgradeReviewerAvatars,
 } from './render-session';
-import { clearAvatarCache } from './avatar-cache';
+import { clearAvatarCache, githubAvatarUri } from './avatar-cache';
 import type { ThreadEntry } from './thread-builder';
 import type { FindingItem } from '../schema';
 import {
@@ -355,7 +355,7 @@ describe('render-session', () => {
         {
           body: new vscode.MarkdownString('finding'),
           mode: vscode.CommentMode.Preview,
-          author: { name: '@alice' },
+          author: { name: '@alice', iconPath: githubAvatarUri('alice') },
           contextValue: 'review-finding-comment',
         },
         {
@@ -437,7 +437,9 @@ describe('render-session', () => {
 
       try {
         await expect(upgradeReviewerAvatars([entry])).resolves.toBeUndefined();
-        expect(entry.thread.comments[0].author.iconPath).toBeUndefined();
+        expect((entry.thread.comments[0].author.iconPath as vscode.Uri).toString()).toBe(
+          githubAvatarUri('alice').toString(),
+        );
         expect(appendLine).toHaveBeenCalledWith(expect.stringContaining('@alice'));
       } finally {
         __resetOutputChannelForTests();

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 const AVATAR_SIZE = 48;
+const AVATAR_FETCH_TIMEOUT_MS = 5_000;
 
 const cache = new Map<string, vscode.Uri>();
 const inflight = new Map<string, Promise<vscode.Uri>>();
@@ -42,7 +43,7 @@ export function clearAvatarCache(): void {
 
 async function loadRoundAvatar(login: string): Promise<vscode.Uri> {
   const source = githubAvatarUri(login).toString();
-  const response = await fetch(source);
+  const response = await fetch(source, { signal: AbortSignal.timeout(AVATAR_FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`GitHub avatar fetch for @${login} failed with status ${response.status}`);
   }

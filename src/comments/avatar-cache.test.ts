@@ -40,7 +40,10 @@ describe('avatar-cache', () => {
 
       const uri = await ensureRoundAvatar('alice');
 
-      expect(fetchMock).toHaveBeenCalledWith('https://github.com/alice.png?size=48');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://github.com/alice.png?size=48',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       const value = uri?.toString() ?? '';
       expect(value.startsWith('data:image/svg+xml;base64,')).toBe(true);
       const svg = Buffer.from(value.replace('data:image/svg+xml;base64,', ''), 'base64').toString();
@@ -77,6 +80,7 @@ describe('avatar-cache', () => {
       const fetchMock = vi.fn(async () => fakeResponse(false, 404));
       vi.stubGlobal('fetch', fetchMock);
 
+      await expect(ensureRoundAvatar('ghost')).rejects.toBeInstanceOf(Error);
       await expect(ensureRoundAvatar('ghost')).rejects.toThrow(
         'GitHub avatar fetch for @ghost failed with status 404',
       );
@@ -110,6 +114,12 @@ describe('avatar-cache', () => {
 
       expect(results[0].status).toBe('rejected');
       expect(results[1].status).toBe('rejected');
+      for (const result of results) {
+        expect(result.status).toBe('rejected');
+        const reason = (result as PromiseRejectedResult).reason;
+        expect(reason).toBeInstanceOf(Error);
+        expect(reason.message).toContain('failed with status 404');
+      }
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(cachedRoundAvatar('ghost')).toBeUndefined();
     });

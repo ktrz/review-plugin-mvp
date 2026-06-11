@@ -261,6 +261,32 @@ describe('buildThreadEntry', () => {
         expect(lastThread().canReply).toBe(variant.canReply);
       });
     }
+
+    it('suffixes -chatting when a deferred finding loads with persisted chat', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({
+          status: 'deferred',
+          chat: [{ role: 'user', content: 'why two links?' }],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().contextValue).toBe('review-finding-deferred-chatting');
+    });
+
+    it('does not suffix -chatting for non-deferred statuses with chat', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({
+          status: 'unresolved',
+          chat: [{ role: 'user', content: 'hi' }],
+        }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().contextValue).toBe('review-finding-unresolved');
+    });
   });
 
   describe('comment body composition', () => {

@@ -48,7 +48,7 @@ function buildThread(deps: BuildThreadDeps): vscode.CommentThread | null {
 
   const thread = controller.createCommentThread(uri, range, [comment]);
   thread.label = `[${finding.status}] ${finding.source.severity} · ${sourceLabel}`;
-  thread.contextValue = contextValueForStatus(finding.status);
+  thread.contextValue = contextValueForFinding(finding);
   thread.canReply = canReplyForStatus(finding.status);
   thread.collapsibleState = collapsibleStateForStatus(finding.status);
   thread.state = threadStateForStatus(finding.status);
@@ -76,6 +76,14 @@ export function buildThreadEntry(deps: BuildThreadEntryDeps): ThreadEntry | null
 
 export function contextValueForStatus(status: StatusMarker): string {
   return `review-finding-${status}`;
+}
+
+export function contextValueForFinding(finding: FindingItem): string {
+  const base = contextValueForStatus(finding.status);
+  if (finding.status === 'deferred' && (finding.chat?.length ?? 0) > 0) {
+    return `${base}-chatting`;
+  }
+  return base;
 }
 
 export function threadStateForStatus(status: StatusMarker): vscode.CommentThreadState {

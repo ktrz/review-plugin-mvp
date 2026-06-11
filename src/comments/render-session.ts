@@ -4,7 +4,7 @@ import {
   canReplyForStatus,
   collapsibleStateForStatus,
   composeBody,
-  contextValueForStatus,
+  contextValueForFinding,
   formatSourceLabel,
   iconForSource,
   threadStateForStatus,
@@ -51,7 +51,7 @@ export function refreshThread(
   }
   const sourceLabel = formatSourceLabel(newItem.source);
   thread.label = `[${newItem.status}] ${newItem.source.severity} · ${sourceLabel}`;
-  thread.contextValue = computeContextValue(newItem);
+  thread.contextValue = contextValueForFinding(newItem);
   thread.state = threadStateForStatus(newItem.status);
   thread.collapsibleState = collapsibleStateForStatus(newItem.status);
   thread.canReply = canReplyForStatus(newItem.status);
@@ -60,14 +60,6 @@ export function refreshThread(
     renderChat(thread, newItem, { getAuthorLabel: () => undefined });
   }
   idToEntry.set(id, { thread, item: newItem });
-}
-
-function computeContextValue(item: FindingItem): string {
-  const base = contextValueForStatus(item.status);
-  if (item.status === 'deferred' && (item.chat?.length ?? 0) > 0) {
-    return `${base}-chatting`;
-  }
-  return base;
 }
 
 export interface ReconcileDeps {

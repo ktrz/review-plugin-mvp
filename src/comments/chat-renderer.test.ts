@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import { renderChat } from './chat-renderer';
+import {
+  clearPersonaIcons,
+  setPersonaIcons,
+  type PersonaIcons,
+} from './persona-icons';
 import type { ChatMessage, FindingItem } from '../schema';
 
 const makeThread = (initialComments: vscode.Comment[] = []): vscode.CommentThread => {
@@ -111,6 +116,57 @@ describe('renderChat', () => {
       const [, userComment, agentComment] = thread.comments;
       expect(userComment.author.name).toBe('Chris');
       expect(agentComment.author.name).toBe('Review Agent');
+    });
+
+    it('leaves iconPath undefined when persona icons are not configured', () => {
+      clearPersonaIcons();
+      const findingComment = makeFindingComment();
+      const thread = makeThread([findingComment]);
+      const chat: ChatMessage[] = [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+      ];
+
+      renderChat(thread, makeItem({ chat }), { getAuthorLabel: () => 'Chris' });
+
+      expect(thread.comments[1].author.iconPath).toBeUndefined();
+      expect(thread.comments[2].author.iconPath).toBeUndefined();
+    });
+
+    it('uses persona icons for user and agent when configured', () => {
+      const icons: PersonaIcons = {
+        autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
+        reviewer: vscode.Uri.file('/ext/media/avatar-reviewer.svg'),
+        user: vscode.Uri.file('/ext/media/avatar-user.svg'),
+        agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
+      };
+      setPersonaIcons(icons);
+      try {
+        const findingComment = makeFindingComment();
+        const thread = makeThread([findingComment]);
+        const chat: ChatMessage[] = [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'hello' },
+        ];
+
+        renderChat(thread, makeItem({ chat }), { getAuthorLabel: () => 'Chris' });
+
+        expect(thread.comments[1].author.iconPath).toBe(icons.user);
+        expect(thread.comments[2].author.iconPath).toBe(icons.agent);
+      } finally {
+        clearPersonaIcons();
+      }
+    });
+
+    it('enables supportThemeIcons on chat body markdown', () => {
+      const findingComment = makeFindingComment();
+      const thread = makeThread([findingComment]);
+      const chat: ChatMessage[] = [{ role: 'user', content: 'hi' }];
+
+      renderChat(thread, makeItem({ chat }), { getAuthorLabel: () => 'Chris' });
+
+      const body = thread.comments[1].body as vscode.MarkdownString;
+      expect(body.supportThemeIcons).toBe(true);
     });
 
     it('falls back to "You" when getAuthorLabel returns undefined', () => {

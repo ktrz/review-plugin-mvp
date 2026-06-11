@@ -15,6 +15,7 @@ import { renderFindings as defaultRenderFindings } from '../comments/renderer';
 import {
   disposeAll as defaultDisposeActiveThreads,
   setActiveEntries as defaultSetActiveEntries,
+  upgradeReviewerAvatars as defaultUpgradeReviewerAvatars,
 } from '../comments/render-session';
 import {
   serializeDocument,
@@ -36,6 +37,7 @@ export type LoadDeps = {
   controller: vscode.CommentController;
   renderFindings: typeof defaultRenderFindings;
   setActiveEntries: typeof defaultSetActiveEntries;
+  upgradeReviewerAvatars: typeof defaultUpgradeReviewerAvatars;
   disposeActiveThreads: typeof defaultDisposeActiveThreads;
   writer: FindingsWriter;
   generateId: () => string;
@@ -272,6 +274,7 @@ function renderAndLog(args: RenderAndLogArgs): void {
     workspaceRoot: deps.workspaceRoot,
   });
   deps.setActiveEntries(fileEntries);
+  void deps.upgradeReviewerAvatars(fileEntries);
   channel.appendLine(`Rendered ${fileEntries.length} inline thread(s).`);
   if (skippedPrLevel > 0) {
     channel.appendLine(
@@ -365,6 +368,7 @@ export function registerLoadFindingsCommand(
       controller: extras.controller,
       renderFindings: defaultRenderFindings,
       setActiveEntries: defaultSetActiveEntries,
+      upgradeReviewerAvatars: defaultUpgradeReviewerAvatars,
       disposeActiveThreads: defaultDisposeActiveThreads,
       writer: extras.writer,
       generateId: () => randomUUID(),

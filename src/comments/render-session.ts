@@ -6,10 +6,12 @@ import {
   composeBody,
   contextValueForStatus,
   formatSourceLabel,
+  iconForSource,
   threadStateForStatus,
   type ThreadEntry,
 } from './thread-builder';
 import { renderChat } from './chat-renderer';
+import { ensureRoundAvatar } from './avatar-cache';
 import type { FindingItem } from '../schema';
 
 interface RegistryEntry {
@@ -121,6 +123,47 @@ export function getActiveThreads(): readonly vscode.CommentThread[] {
   return activeThreads;
 }
 
+// Fetches a circular GitHub avatar per reviewer and swaps it onto the finding
+// comment once ready. Non-blocking: the square avatar is shown until each
+// fetch resolves; failures leave the square one in place.
+export async function upgradeReviewerAvatars(
+  entries: readonly ThreadEntry[],
+): Promise<void> {
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.item.source.kind !== 'reviewer') {
+        return;
+      }
+      const login = entry.item.source.login;
+      try {
+        const uri = await ensureRoundAvatar(login);
+        if (uri !== undefined) {
+          applyFindingIcon(entry.id, uri);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logWarning(`Could not load rounded avatar for @${login}: ${message}`);
+      }
+    }),
+  );
+}
+
+function applyFindingIcon(id: string, iconPath: vscode.Uri): void {
+  const entry = idToEntry.get(id);
+  if (entry === undefined) {
+    return;
+  }
+  const comments = entry.thread.comments;
+  const finding = comments[0];
+  if (finding === undefined) {
+    return;
+  }
+  entry.thread.comments = [
+    { ...finding, author: { ...finding.author, iconPath } },
+    ...comments.slice(1),
+  ];
+}
+
 function disposeOne(thread: vscode.CommentThread): void {
   try {
     thread.dispose();
@@ -150,7 +193,7 @@ function composeRefreshedComment(
   return {
     body: composeBody(newItem),
     mode: previous?.mode ?? vscode.CommentMode.Preview,
-    author: { name: formatSourceLabel(newItem.source) },
+    author: { name: formatSourceLabel(newItem.source), iconPath: iconForSource(newItem.source) },
     contextValue: previous?.contextValue ?? 'review-finding-comment',
   };
 }

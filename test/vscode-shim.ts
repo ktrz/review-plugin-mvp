@@ -36,13 +36,39 @@ export class Range {
   }
 }
 
+export interface UriLike {
+  fsPath: string;
+  scheme: string;
+  path: string;
+  toString(): string;
+}
+
 export const Uri = {
-  file(p: string) {
+  file(p: string): UriLike {
     return {
       fsPath: p,
       scheme: 'file',
       path: p,
       toString: () => p,
+    };
+  },
+  joinPath(base: UriLike, ...segments: string[]): UriLike {
+    const joined = [base.path, ...segments].join('/').replace(/\/+/g, '/');
+    return {
+      fsPath: joined,
+      scheme: base.scheme,
+      path: joined,
+      toString: () => joined,
+    };
+  },
+  parse(value: string): UriLike {
+    const scheme = value.match(/^([a-z][a-z0-9+.-]*):/i)?.[1] ?? '';
+    const path = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[?#].*$/, '');
+    return {
+      fsPath: path,
+      scheme,
+      path,
+      toString: () => value,
     };
   },
 };
@@ -63,6 +89,7 @@ export class MarkdownString {
   public value: string;
   public isTrusted = false;
   public supportHtml = false;
+  public supportThemeIcons = false;
 
   constructor(value = '') {
     this.value = value;
@@ -77,6 +104,17 @@ export class MarkdownString {
     this.value += text;
     return this;
   }
+}
+
+export class ThemeColor {
+  constructor(public readonly id: string) {}
+}
+
+export class ThemeIcon {
+  constructor(
+    public readonly id: string,
+    public readonly color?: ThemeColor,
+  ) {}
 }
 
 export const CommentMode = {

@@ -10,6 +10,11 @@ import {
 import {
   buildThreadEntry,
 } from './thread-builder';
+import {
+  clearPersonaIcons,
+  setPersonaIcons,
+  type PersonaIcons,
+} from './persona-icons';
 
 type FakeThread = {
   uri: vscode.Uri;
@@ -284,6 +289,7 @@ describe('buildThreadEntry', () => {
       expect(md.value).toContain('- opt two');
       expect(md.isTrusted).toBe(false);
       expect(md.supportHtml).toBe(false);
+      expect(md.supportThemeIcons).toBe(true);
     });
 
     it('omits Options block when options array is empty', () => {
@@ -347,6 +353,98 @@ describe('buildThreadEntry', () => {
         workspaceRoot: '/repo',
       });
       expect(lastThread().comments[0].author.name).toBe('@bob');
+    });
+  });
+
+  describe('pretty styling', () => {
+    it('leaves author iconPath undefined when persona icons are not configured', () => {
+      clearPersonaIcons();
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ sourceKind: 'auto-review' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].author.iconPath).toBeUndefined();
+    });
+
+    it('uses the auto-review persona icon when configured', () => {
+      const icons: PersonaIcons = {
+        autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
+        reviewer: vscode.Uri.file('/ext/media/avatar-reviewer.svg'),
+        user: vscode.Uri.file('/ext/media/avatar-user.svg'),
+        agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
+      };
+      setPersonaIcons(icons);
+      try {
+        const { controller, lastThread } = makeFakeController();
+        buildThreadEntry({
+          finding: makeFinding({ sourceKind: 'auto-review' }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+        expect(lastThread().comments[0].author.iconPath).toBe(icons.autoReview);
+      } finally {
+        clearPersonaIcons();
+      }
+    });
+
+    it('uses the GitHub avatar URL for a reviewer regardless of persona icons', () => {
+      clearPersonaIcons();
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ sourceKind: 'reviewer', login: 'alice' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const iconPath = lastThread().comments[0].author.iconPath as vscode.Uri;
+      expect(iconPath.toString()).toBe('https://github.com/alice.png?size=48');
+    });
+
+    it('sets comment label to the severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'important' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      expect(lastThread().comments[0].label).toBe('important');
+    });
+
+    it('prefixes body sections with codicons matching severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'critical' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(error) **Comment:**');
+      expect(md.value).toContain('$(search) **Analysis:**');
+      expect(md.value).toContain('$(lightbulb) **Recommendation:**');
+      expect(md.value).toContain('$(list-unordered) **Options:**');
+    });
+
+    it('uses warning codicon for important severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'important' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(warning) **Comment:**');
+    });
+
+    it('uses info codicon for nit severity', () => {
+      const { controller, lastThread } = makeFakeController();
+      buildThreadEntry({
+        finding: makeFinding({ severity: 'nit' }),
+        controller,
+        workspaceRoot: '/repo',
+      });
+      const md = lastThread().comments[0].body as vscode.MarkdownString;
+      expect(md.value).toContain('$(info) **Comment:**');
     });
   });
 

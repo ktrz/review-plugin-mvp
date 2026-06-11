@@ -161,6 +161,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     (_d: RenderFindingsDeps): RenderFindingsResult => renderResult,
   );
   const setActiveEntries = vi.fn();
+  const upgradeReviewerAvatars = vi.fn(async () => undefined);
   const disposeActiveThreads = vi.fn();
   const writer = makeFakeWriter();
   const generateId = vi.fn(() => 'stamped-uuid');
@@ -186,6 +187,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     controller,
     renderFindings: renderFindings as LoadDeps['renderFindings'],
     setActiveEntries,
+    upgradeReviewerAvatars,
     disposeActiveThreads,
     writer,
     generateId,
@@ -207,6 +209,7 @@ function makeDeps(overrides: Partial<LoadDeps> = {}) {
     controller,
     renderFindings,
     setActiveEntries,
+    upgradeReviewerAvatars,
     disposeActiveThreads,
     renderResult,
     writer,

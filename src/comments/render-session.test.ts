@@ -8,7 +8,9 @@ import {
   reconcileEntries,
   refreshThread,
   setActiveEntries,
+  upgradeReviewerAvatars,
 } from './render-session';
+import { clearAvatarCache } from './avatar-cache';
 import type { ThreadEntry } from './thread-builder';
 import type { FindingItem } from '../schema';
 import {
@@ -246,6 +248,25 @@ describe('render-session', () => {
       expect(findThreadById('id-r')?.item).toBe(updatedItem);
     });
 
+    it('keeps the reviewer avatar on the finding comment after refresh', () => {
+      const e = makeEntry('id-av', {
+        status: 'unresolved',
+        source: { kind: 'reviewer', login: 'NachoVazquez', severity: 'suggestion' },
+        reportedBy: ['@NachoVazquez'],
+      });
+      setActiveEntries([e]);
+
+      const updatedItem = makeItem('id-av', {
+        status: 'deferred',
+        source: { kind: 'reviewer', login: 'NachoVazquez', severity: 'suggestion' },
+        reportedBy: ['@NachoVazquez'],
+      });
+      refreshThread(e.thread, updatedItem);
+
+      const iconPath = e.thread.comments[0].author.iconPath as vscode.Uri;
+      expect(iconPath?.toString()).toBe('https://github.com/NachoVazquez.png?size=48');
+    });
+
     it('keeps canReply true across status transitions (reply auto-promotes status)', () => {
       const e = makeEntry('id-d', { status: 'unresolved' });
       setActiveEntries([e]);
@@ -292,6 +313,106 @@ describe('render-session', () => {
         expect(channel.appendLine).toHaveBeenCalledWith(
           expect.stringContaining('refreshThread called for an unregistered thread'),
         );
+      } finally {
+        __resetOutputChannelForTests();
+      }
+    });
+  });
+
+  describe('upgradeReviewerAvatars', () => {
+    afterEach(() => {
+      clearAvatarCache();
+      vi.unstubAllGlobals();
+    });
+
+    const reviewerEntry = (): ThreadEntry => {
+      const thread = makeThread('thread-rev');
+      thread.comments = [
+        {
+          body: new vscode.MarkdownString('finding'),
+          mode: vscode.CommentMode.Preview,
+          author: { name: '@alice' },
+          contextValue: 'review-finding-comment',
+        },
+        {
+          body: new vscode.MarkdownString('reply'),
+          mode: vscode.CommentMode.Preview,
+          author: { name: 'You' },
+          contextValue: 'review-chat-user',
+        },
+      ];
+      return {
+        thread,
+        id: 'rev-1',
+        item: makeItem('rev-1', {
+          source: { kind: 'reviewer', login: 'alice', severity: 'suggestion' },
+          reportedBy: ['@alice'],
+        }),
+      };
+    };
+
+    it('swaps the fetched circular avatar onto the finding comment, preserving chat', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer.slice(0),
+        })),
+      );
+      const entry = reviewerEntry();
+      setActiveEntries([entry]);
+
+      await upgradeReviewerAvatars([entry]);
+
+      const iconPath = entry.thread.comments[0].author.iconPath as vscode.Uri;
+      expect(iconPath?.toString().startsWith('data:image/svg+xml;base64,')).toBe(true);
+      expect(entry.thread.comments).toHaveLength(2);
+      expect(entry.thread.comments[1].contextValue).toBe('review-chat-user');
+    });
+
+    it('ignores auto-review entries and leaves the finding comment untouched', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const entry = makeEntry('auto-1', {
+        source: { kind: 'auto-review', severity: 'critical' },
+      });
+      entry.thread.comments = [
+        {
+          body: new vscode.MarkdownString('finding'),
+          mode: vscode.CommentMode.Preview,
+          author: { name: 'auto-review' },
+          contextValue: 'review-finding-comment',
+        },
+      ];
+      setActiveEntries([entry]);
+
+      await upgradeReviewerAvatars([entry]);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(entry.thread.comments[0].author.iconPath).toBeUndefined();
+    });
+
+    it('keeps the square avatar when the fetch fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status: 500, arrayBuffer: async () => new ArrayBuffer(0) })),
+      );
+      setOutputChannel({
+        name: 'Review Plugin',
+        appendLine: vi.fn(),
+        append: vi.fn(),
+        clear: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+        replace: vi.fn(),
+      } as unknown as vscode.OutputChannel);
+      const entry = reviewerEntry();
+      setActiveEntries([entry]);
+
+      try {
+        await expect(upgradeReviewerAvatars([entry])).resolves.toBeUndefined();
+        expect(entry.thread.comments[0].author.iconPath).toBeUndefined();
       } finally {
         __resetOutputChannelForTests();
       }

@@ -82,5 +82,36 @@ describe('avatar-cache', () => {
       );
       expect(cachedRoundAvatar('ghost')).toBeUndefined();
     });
+
+    it('retries after failure: failed fetch removes the inflight entry so next call starts fresh', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(fakeResponse(false, 404))
+        .mockResolvedValueOnce(fakeResponse(true, 200));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(ensureRoundAvatar('ghost')).rejects.toThrow('status 404');
+      expect(cachedRoundAvatar('ghost')).toBeUndefined();
+
+      const uri = await ensureRoundAvatar('ghost');
+      expect(uri.toString().startsWith('data:image/svg+xml;base64,')).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(cachedRoundAvatar('ghost')).toBe(uri);
+    });
+
+    it('propagates rejection to all concurrent callers sharing an in-flight fetch', async () => {
+      const fetchMock = vi.fn(async () => fakeResponse(false, 404));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const results = await Promise.allSettled([
+        ensureRoundAvatar('ghost'),
+        ensureRoundAvatar('ghost'),
+      ]);
+
+      expect(results[0].status).toBe('rejected');
+      expect(results[1].status).toBe('rejected');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(cachedRoundAvatar('ghost')).toBeUndefined();
+    });
   });
 });

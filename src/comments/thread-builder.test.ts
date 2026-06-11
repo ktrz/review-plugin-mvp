@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
 import {
   FindingItemSchema,
@@ -15,6 +15,11 @@ import {
   setPersonaIcons,
   type PersonaIcons,
 } from './persona-icons';
+import {
+  cachedRoundAvatar,
+  clearAvatarCache,
+  ensureRoundAvatar,
+} from './avatar-cache';
 
 type FakeThread = {
   uri: vscode.Uri;
@@ -397,7 +402,6 @@ describe('buildThreadEntry', () => {
     it('uses the auto-review persona icon when configured', () => {
       const icons: PersonaIcons = {
         autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
-        reviewer: vscode.Uri.file('/ext/media/avatar-reviewer.svg'),
         user: vscode.Uri.file('/ext/media/avatar-user.svg'),
         agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
       };
@@ -425,6 +429,32 @@ describe('buildThreadEntry', () => {
       });
       const iconPath = lastThread().comments[0].author.iconPath as vscode.Uri;
       expect(iconPath.toString()).toBe('https://github.com/alice.png?size=48');
+    });
+
+    describe('iconForSource — cached round avatar hit', () => {
+      beforeEach(() => clearAvatarCache());
+      afterEach(() => { vi.unstubAllGlobals(); });
+
+      it('uses the cached circular avatar URI when cachedRoundAvatar is populated', async () => {
+        const PNG_BYTES = Uint8Array.from([137, 80, 78, 71, 1, 2, 3, 4]);
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => PNG_BYTES.buffer.slice(0),
+        })));
+        await ensureRoundAvatar('alice');
+        const cachedUri = cachedRoundAvatar('alice');
+        expect(cachedUri).toBeDefined();
+
+        const { controller, lastThread } = makeFakeController();
+        buildThreadEntry({
+          finding: makeFinding({ sourceKind: 'reviewer', login: 'alice' }),
+          controller,
+          workspaceRoot: '/repo',
+        });
+
+        expect(lastThread().comments[0].author.iconPath).toBe(cachedUri);
+      });
     });
 
     it('sets comment label to the severity', () => {

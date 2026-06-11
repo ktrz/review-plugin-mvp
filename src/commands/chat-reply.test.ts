@@ -223,7 +223,6 @@ describe('createChatReplyHandler', () => {
   it('thinking placeholder carries the agent persona avatar', async () => {
     const icons: PersonaIcons = {
       autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
-      reviewer: vscode.Uri.file('/ext/media/avatar-reviewer.svg'),
       user: vscode.Uri.file('/ext/media/avatar-user.svg'),
       agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
     };
@@ -244,6 +243,22 @@ describe('createChatReplyHandler', () => {
     } finally {
       clearPersonaIcons();
     }
+  });
+
+  it('thinking placeholder has undefined iconPath when persona icons are not configured', async () => {
+    clearPersonaIcons();
+    const thread = makeThread();
+    let placeholderIcon: unknown = 'unset';
+    const runImpl = async () => {
+      placeholderIcon = thread.comments.at(-1)?.author.iconPath;
+      return 'agent reply';
+    };
+    const h = makeHarness({ runImpl });
+    const handler = createChatReplyHandler(h.deps);
+
+    await handler({ thread, text: 'why?' });
+
+    expect(placeholderIcon).toBeUndefined();
   });
 
   it('reply on non-deferred status auto-promotes status to deferred before appending chat', async () => {

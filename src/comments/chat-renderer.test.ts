@@ -136,7 +136,6 @@ describe('renderChat', () => {
     it('uses persona icons for user and agent when configured', () => {
       const icons: PersonaIcons = {
         autoReview: vscode.Uri.file('/ext/media/avatar-auto-review.svg'),
-        reviewer: vscode.Uri.file('/ext/media/avatar-reviewer.svg'),
         user: vscode.Uri.file('/ext/media/avatar-user.svg'),
         agent: vscode.Uri.file('/ext/media/avatar-agent.svg'),
       };

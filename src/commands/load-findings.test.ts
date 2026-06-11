@@ -241,6 +241,7 @@ describe('loadFindingsHandler', () => {
       watcherDispose: _wd,
       renderFindings,
       setActiveEntries,
+      upgradeReviewerAvatars,
       renderResult,
       controller,
     } = makeDeps();
@@ -269,6 +270,7 @@ describe('loadFindingsHandler', () => {
     expect(renderArgs?.doc).toBe(state?.doc);
     expect(setActiveEntries).toHaveBeenCalledTimes(1);
     expect(setActiveEntries).toHaveBeenCalledWith(renderResult.fileEntries);
+    expect(upgradeReviewerAvatars).toHaveBeenCalledWith(renderResult.fileEntries);
 
     expect(channel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('Loaded 2 findings from /tmp/repo/pr-42-auto-review.md'),

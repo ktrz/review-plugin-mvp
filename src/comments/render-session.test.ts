@@ -267,6 +267,30 @@ describe('render-session', () => {
       expect(iconPath?.toString()).toBe('https://github.com/NachoVazquez.png?size=48');
     });
 
+    it('preserves the severity label on the finding comment after refresh', () => {
+      const e = makeEntry('id-label', {
+        source: { kind: 'auto-review', severity: 'important' },
+      });
+      e.thread.comments = [
+        {
+          body: new vscode.MarkdownString('finding'),
+          mode: vscode.CommentMode.Preview,
+          author: { name: 'auto-review' },
+          label: 'important',
+          contextValue: 'review-finding-comment',
+        },
+      ];
+      setActiveEntries([e]);
+
+      const updatedItem = makeItem('id-label', {
+        source: { kind: 'auto-review', severity: 'important' },
+        status: 'deferred',
+      });
+      refreshThread(e.thread, updatedItem);
+
+      expect(e.thread.comments[0].label).toBe('important');
+    });
+
     it('keeps canReply true across status transitions (reply auto-promotes status)', () => {
       const e = makeEntry('id-d', { status: 'unresolved' });
       setActiveEntries([e]);
@@ -393,14 +417,15 @@ describe('render-session', () => {
       expect(entry.thread.comments[0].author.iconPath).toBeUndefined();
     });
 
-    it('keeps the square avatar when the fetch fails', async () => {
+    it('keeps the square avatar when the fetch fails and logs the warning with the login', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => ({ ok: false, status: 500, arrayBuffer: async () => new ArrayBuffer(0) })),
       );
+      const appendLine = vi.fn();
       setOutputChannel({
         name: 'Review Plugin',
-        appendLine: vi.fn(),
+        appendLine,
         append: vi.fn(),
         clear: vi.fn(),
         hide: vi.fn(),
@@ -413,6 +438,37 @@ describe('render-session', () => {
       try {
         await expect(upgradeReviewerAvatars([entry])).resolves.toBeUndefined();
         expect(entry.thread.comments[0].author.iconPath).toBeUndefined();
+        expect(appendLine).toHaveBeenCalledWith(expect.stringContaining('@alice'));
+      } finally {
+        __resetOutputChannelForTests();
+      }
+    });
+
+    it('emits a summary warning when all reviewer fetches fail', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status: 503, arrayBuffer: async () => new ArrayBuffer(0) })),
+      );
+      const appendLine = vi.fn();
+      setOutputChannel({
+        name: 'Review Plugin',
+        appendLine,
+        append: vi.fn(),
+        clear: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+        replace: vi.fn(),
+      } as unknown as vscode.OutputChannel);
+      const e1 = reviewerEntry();
+      const e2 = { ...reviewerEntry(), id: 'rev-2' };
+      e2.item = makeItem('rev-2', { source: { kind: 'reviewer', login: 'bob', severity: 'nit' } });
+      setActiveEntries([e1, e2]);
+
+      try {
+        await upgradeReviewerAvatars([e1, e2]);
+        const calls = appendLine.mock.calls.map((c) => c[0] as string);
+        const summaryCall = calls.find((c) => c.includes('All 2 reviewer avatar fetch'));
+        expect(summaryCall).toBeDefined();
       } finally {
         __resetOutputChannelForTests();
       }

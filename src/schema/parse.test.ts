@@ -1600,6 +1600,24 @@ describe('parseDocument — markdown-escaped file paths in headings', () => {
     }
   });
 
+  it('unescapes multiple escaped punctuation chars in one path', () => {
+    const doc = parseDocument(autoItem('\\_shared\\_util.ts:1'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('_shared_util.ts');
+    }
+  });
+
+  it('unescapes non-underscore CommonMark punctuation (e.g. escaped dot)', () => {
+    const doc = parseDocument(autoItem('src\\/x\\.ts:5'));
+    const loc = doc.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('src/x.ts');
+    }
+  });
+
   it('leaves review-body items untouched', () => {
     const raw = makeDoc({
       prNumber: 99,

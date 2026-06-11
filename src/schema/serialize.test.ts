@@ -192,4 +192,23 @@ describe('serializeDocument — round-trips a stamped item', () => {
     expect(reparsed.items[0].status).toBe('resolved');
     expect(reparsed.items[0].resolution).toBe('Done');
   });
+
+  it('preserves location.file value through dirty-item re-serialize for escaped path (value-identity, not byte-identity)', () => {
+    // unescapeMarkdown is many-to-one: both \_shared/x.ts and _shared/x.ts parse
+    // to _shared/x.ts. serialize re-emits the unescaped value, so byte-identity
+    // is not achievable without replicating prettier's context-sensitive escaper.
+    // The invariant that IS guaranteed: location.file VALUE survives the round-trip.
+    const item: FindingItem = {
+      ...dirtyItem({ id: 'escaped-path' }),
+      location: { kind: 'file', file: '_shared/x.ts', line: 3 },
+    };
+    const doc: HandoverDocument = { header, items: [item] };
+    const serialized = serializeDocument(doc);
+    const reparsed = parseDocument(serialized);
+    const loc = reparsed.items[0].location;
+    expect(loc.kind).toBe('file');
+    if (loc.kind === 'file') {
+      expect(loc.file).toBe('_shared/x.ts');
+    }
+  });
 });

@@ -115,12 +115,13 @@ export function getActiveThreads(): readonly vscode.CommentThread[] {
   return activeThreads;
 }
 
-// Fetches a circular GitHub avatar per reviewer and swaps it onto the finding
-// comment once ready. Non-blocking: the square avatar is shown until each
-// fetch resolves; failures leave the square one in place.
+// Non-blocking: the square avatar is shown until each fetch resolves; failures leave the square one in place.
 export async function upgradeReviewerAvatars(
   entries: readonly ThreadEntry[],
 ): Promise<void> {
+  const reviewerCount = entries.filter((e) => e.item.source.kind === 'reviewer').length;
+  let failureCount = 0;
+  let lastError = '';
   await Promise.all(
     entries.map(async (entry) => {
       if (entry.item.source.kind !== 'reviewer') {
@@ -130,19 +131,27 @@ export async function upgradeReviewerAvatars(
       try {
         const uri = await ensureRoundAvatar(login);
         if (uri !== undefined) {
-          applyFindingIcon(entry.id, uri);
+          applyFindingIcon(entry.id, login, uri);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logWarning(`Could not load rounded avatar for @${login}: ${message}`);
+        failureCount++;
+        const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+        lastError = detail;
+        logWarning(`Could not load rounded avatar for @${login}: ${detail}`);
       }
     }),
   );
+  if (reviewerCount > 0 && failureCount === reviewerCount) {
+    logWarning(`All ${reviewerCount} reviewer avatar fetch(es) failed. Last error: ${lastError}`);
+  }
 }
 
-function applyFindingIcon(id: string, iconPath: vscode.Uri): void {
+function applyFindingIcon(id: string, login: string, iconPath: vscode.Uri): void {
   const entry = idToEntry.get(id);
   if (entry === undefined) {
+    return;
+  }
+  if (entry.item.source.kind !== 'reviewer' || entry.item.source.login !== login) {
     return;
   }
   const comments = entry.thread.comments;
@@ -186,6 +195,7 @@ function composeRefreshedComment(
     body: composeBody(newItem),
     mode: previous?.mode ?? vscode.CommentMode.Preview,
     author: { name: formatSourceLabel(newItem.source), iconPath: iconForSource(newItem.source) },
+    label: newItem.source.severity,
     contextValue: previous?.contextValue ?? 'review-finding-comment',
   };
 }

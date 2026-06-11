@@ -274,7 +274,9 @@ function renderAndLog(args: RenderAndLogArgs): void {
     workspaceRoot: deps.workspaceRoot,
   });
   deps.setActiveEntries(fileEntries);
-  void deps.upgradeReviewerAvatars(fileEntries);
+  void deps.upgradeReviewerAvatars(fileEntries).catch((err) => {
+    channel.appendLine(`upgradeReviewerAvatars rejected unexpectedly: ${String(err)}`);
+  });
   channel.appendLine(`Rendered ${fileEntries.length} inline thread(s).`);
   if (skippedPrLevel > 0) {
     channel.appendLine(

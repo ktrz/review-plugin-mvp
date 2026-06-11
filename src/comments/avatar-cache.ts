@@ -3,22 +3,21 @@ import * as vscode from 'vscode';
 const AVATAR_SIZE = 48;
 
 const cache = new Map<string, vscode.Uri>();
-const inflight = new Map<string, Promise<vscode.Uri | undefined>>();
+const inflight = new Map<string, Promise<vscode.Uri>>();
 
 export function githubAvatarUri(login: string): vscode.Uri {
   return vscode.Uri.parse(`https://github.com/${encodeURIComponent(login)}.png?size=${AVATAR_SIZE}`);
 }
 
 // Synchronous lookup for the circular avatar; undefined until ensureRoundAvatar
-// has fetched and cached it. Callers fall back to the square githubAvatarUri.
+// has fetched and cached it.
 export function cachedRoundAvatar(login: string): vscode.Uri | undefined {
   return cache.get(login);
 }
 
 // GitHub serves a square PNG, and VS Code does not clip comment avatars, so we
 // fetch the bytes once and re-wrap them in an SVG with a circular clip path.
-// Concurrent calls for the same login share a single fetch.
-export async function ensureRoundAvatar(login: string): Promise<vscode.Uri | undefined> {
+export async function ensureRoundAvatar(login: string): Promise<vscode.Uri> {
   const cached = cache.get(login);
   if (cached !== undefined) {
     return cached;
@@ -31,6 +30,7 @@ export async function ensureRoundAvatar(login: string): Promise<vscode.Uri | und
   try {
     return await pending;
   } finally {
+    // Removed here so a failed fetch doesn't block retries — next call starts fresh.
     inflight.delete(login);
   }
 }
@@ -40,7 +40,7 @@ export function clearAvatarCache(): void {
   inflight.clear();
 }
 
-async function loadRoundAvatar(login: string): Promise<vscode.Uri | undefined> {
+async function loadRoundAvatar(login: string): Promise<vscode.Uri> {
   const source = githubAvatarUri(login).toString();
   const response = await fetch(source);
   if (!response.ok) {

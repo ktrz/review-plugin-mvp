@@ -36,12 +36,12 @@ export class Range {
   }
 }
 
-export interface UriLike {
+export type UriLike = {
   fsPath: string;
   scheme: string;
   path: string;
   toString(): string;
-}
+};
 
 export const Uri = {
   file(p: string): UriLike {

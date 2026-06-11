@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import type { FindingItem, Severity, Source, StatusMarker } from '../schema';
 import { renderChat } from './chat-renderer';
 import { cachedRoundAvatar, githubAvatarUri } from './avatar-cache';
-import { getPersonaIcons } from './persona-icons';
+import { personaIconPath } from './persona-icons';
 
 interface BuildThreadDeps {
   finding: FindingItem;
@@ -128,16 +128,13 @@ export function composeBody(finding: FindingItem): vscode.MarkdownString {
 }
 
 export function iconForSource(source: Source): vscode.Uri | undefined {
-  if (source.kind === 'reviewer') {
-    // Prefer the fetched circular avatar; until it lands, show the square
-    // GitHub PNG (real photo or auto-generated identicon) so something renders.
-    return cachedRoundAvatar(source.login) ?? githubAvatarUri(source.login);
+  switch (source.kind) {
+    case 'reviewer':
+      // githubAvatarUri returns a real photo or identicon — always something visible while the round avatar loads.
+      return cachedRoundAvatar(source.login) ?? githubAvatarUri(source.login);
+    case 'auto-review':
+      return personaIconPath('autoReview');
   }
-  const icons = getPersonaIcons();
-  if (icons === undefined) {
-    return undefined;
-  }
-  return icons.autoReview;
 }
 
 export function codiconForSeverity(severity: Severity): string {

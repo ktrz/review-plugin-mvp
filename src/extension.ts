@@ -59,9 +59,7 @@ export function activate(context: vscode.ExtensionContext): void {
   setOutputChannel(channel);
   context.subscriptions.push(channel);
 
-  if (context.extensionUri !== undefined) {
-    setPersonaIcons(createPersonaIcons(context.extensionUri));
-  }
+  setPersonaIcons(createPersonaIcons(context.extensionUri));
 
   const controller = createFindingsController();
   context.subscriptions.push(controller);

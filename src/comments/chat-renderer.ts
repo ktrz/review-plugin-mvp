@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ChatMessage, FindingItem } from '../schema';
-import { getPersonaIcons } from './persona-icons';
+import { personaIconPath } from './persona-icons';
 
 export interface RenderChatDeps {
   getAuthorLabel: () => string | undefined;
@@ -40,10 +40,7 @@ export function renderChat(
 function toComment(message: ChatMessage, userLabel: string): vscode.Comment {
   const isAssistant = message.role === 'assistant';
   const authorName = isAssistant ? 'Review Agent' : userLabel;
-  const icons = getPersonaIcons();
-  const iconPath = icons === undefined
-    ? undefined
-    : isAssistant ? icons.agent : icons.user;
+  const iconPath = personaIconPath(isAssistant ? 'agent' : 'user');
   const body = new vscode.MarkdownString(message.content);
   body.supportThemeIcons = true;
   return {

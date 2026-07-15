@@ -38,7 +38,7 @@ export class ApplyDecisionError extends Error {
   }
 }
 
-const POST_RESOLUTION_PLACEHOLDER = '(posted via plugin)';
+const POST_RESOLUTION_TEXT = 'Accepted recommended option';
 
 function mutateForStringDecision(
   item: FindingItem,
@@ -46,7 +46,7 @@ function mutateForStringDecision(
 ): FindingItem {
   switch (decision) {
     case 'post':
-      return markResolved(item, POST_RESOLUTION_PLACEHOLDER);
+      return markResolved(item, POST_RESOLUTION_TEXT);
     case 'dismiss':
       return markSkipped(item);
     case 'discuss':

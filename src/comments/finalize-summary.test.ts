@@ -88,7 +88,7 @@ describe('renderSummary', () => {
       '  unresolved: 4  [?]',
       '',
       'File:    /tmp/x.md',
-      'Command: claude /execute-review-decisions /tmp/x.md',
+      'Command: claude "/execute-review-decisions /tmp/x.md"',
     ].join('\n');
     expect(result.block).toBe(expected);
   });
@@ -98,7 +98,7 @@ describe('renderSummary', () => {
       filePath: '/tmp/x.md',
       counts: { resolved: 0, custom: 0, deferred: 0, skipped: 0, unresolved: 0 },
     });
-    expect(result.cliCommand).toBe('claude /execute-review-decisions /tmp/x.md');
+    expect(result.cliCommand).toBe('claude "/execute-review-decisions /tmp/x.md"');
   });
 
   it('line uses warning phrasing when unresolved + deferred > 0', () => {

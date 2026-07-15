@@ -59,7 +59,7 @@ export type RenderedSummary = {
 export function renderSummary(input: { filePath: string; counts: StatusCounts }): RenderedSummary {
   const { filePath, counts } = input;
   const total = counts.resolved + counts.custom + counts.deferred + counts.skipped + counts.unresolved;
-  const cliCommand = `claude /execute-review-decisions ${filePath}`;
+  const cliCommand = `claude "/execute-review-decisions ${filePath}"`;
 
   const block = [
     `Review session — ${total} items`,

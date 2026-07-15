@@ -269,7 +269,7 @@ describe('createFinalizeHandler', () => {
       'Copy command',
     );
     expect(bundle.writeText).toHaveBeenCalledWith(
-      `claude /execute-review-decisions ${FILE_PATH}`,
+      `claude "/execute-review-decisions ${FILE_PATH}"`,
     );
     expect(bundle.showInformationMessage).toHaveBeenNthCalledWith(
       2,

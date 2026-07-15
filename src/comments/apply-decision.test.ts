@@ -33,12 +33,12 @@ const makeDoc = (items: FindingItem[]): HandoverDocument => ({
 
 describe('applyDecision', () => {
   describe('decision → status mapping', () => {
-    it('post → resolved with placeholder resolution', () => {
+    it('post → resolved with accepted-recommendation resolution', () => {
       const doc = makeDoc([baseItem]);
       const result = applyDecision(doc, 'item-1', 'post');
       const updated = result.items[0];
       expect(updated.status).toBe('resolved');
-      expect(updated.resolution).toBe('(posted via plugin)');
+      expect(updated.resolution).toBe('Accepted recommended option');
       expect(updated.dirty).toBe(true);
     });
 
